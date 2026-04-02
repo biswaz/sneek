@@ -29,7 +29,12 @@ public actor Daemon {
             guard let self else { return }
             Task {
                 for (name, cmd) in self.configStore.commands {
-                    if cmd.enabled == false { continue }
+                    if cmd.enabled == false {
+                        // Tear down tunnel and reap session for disabled commands
+                        try? await self.tunnelManager.tearDown(name)
+                        await self.sessionManager.reap(name)
+                        continue
+                    }
                     if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
                         try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
                     }

@@ -16,6 +16,12 @@ public actor Daemon {
     }
 
     public func start() async throws {
+        // Initialize logger
+        let logsDir = configStore.baseDir.appendingPathComponent("logs")
+        try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        SneekLogger.logFile = logsDir.appendingPathComponent("sneekd.log")
+
+        SneekLogger.info("daemon: starting")
         try ipcServer.start()
         configStore.startWatching()
 
@@ -24,7 +30,8 @@ public actor Daemon {
         let store = configStore
 
         ipcServer.handler = { request in
-            await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
+            SneekLogger.debug("daemon: IPC request received: \(request.action)")
+            return await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
         }
 
         // Start auto-connect tunnels
@@ -34,12 +41,15 @@ public actor Daemon {
             }
         }
 
+        await tunnelManager.startMonitoring()
         await ipcServer.acceptLoop()
     }
 
     public func stop() async {
+        SneekLogger.info("daemon: stopping")
         configStore.stopWatching()
         ipcServer.stop()
+        await tunnelManager.stopMonitoring()
         await sessionManager.reapAll()
         await tunnelManager.tearDownAll()
     }
@@ -107,6 +117,8 @@ public actor Daemon {
         guard let cmd = configStore.commands[name] else {
             return .fail("unknown command: \(name)")
         }
+
+        SneekLogger.info("daemon: executing command '\(name)' (mode: \(cmd.mode))")
 
         // Resolve secrets + variables
         let resolver = SecretResolver(

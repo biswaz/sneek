@@ -52,6 +52,25 @@ private func runProcess(_ executable: String, _ arguments: [String]) async throw
     return output.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+// MARK: - Path Resolution
+
+private func findExecutable(_ name: String, fallback: String) -> String {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+    p.arguments = [name]
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+    if p.terminationStatus == 0 {
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !path.isEmpty { return path }
+    }
+    return fallback
+}
+
 // MARK: - Provider Implementations
 
 public struct KeychainProvider: SecretProvider {
@@ -72,7 +91,7 @@ public struct OnePasswordProvider: SecretProvider {
     public init() {}
 
     public func resolve(_ ref: String) async throws -> String {
-        try await runProcess("/usr/local/bin/op", ["read", ref])
+        try await runProcess(findExecutable("op", fallback: "/usr/local/bin/op"), ["read", ref])
     }
 }
 
@@ -80,7 +99,7 @@ public struct BitwardenProvider: SecretProvider {
     public init() {}
 
     public func resolve(_ item: String) async throws -> String {
-        try await runProcess("/usr/local/bin/bw", ["get", "password", item])
+        try await runProcess(findExecutable("bw", fallback: "/usr/local/bin/bw"), ["get", "password", item])
     }
 }
 
@@ -125,17 +144,23 @@ public final class SecretResolver: @unchecked Sendable {
         var result = variables
 
         for (name, ref) in secrets {
+            let provider: String
             let value: String
             switch ref {
             case .keychain(let key):
+                provider = "keychain"
                 value = try await keychainProvider.resolve(key)
-            case .onePassword(let ref):
-                value = try await onePasswordProvider.resolve(ref)
+            case .onePassword(let opRef):
+                provider = "1password"
+                value = try await onePasswordProvider.resolve(opRef)
             case .bitwarden(let item):
+                provider = "bitwarden"
                 value = try await bitwardenProvider.resolve(item)
             case .env(let variable):
+                provider = "env"
                 value = try await envProvider.resolve(variable)
             }
+            SneekLogger.debug("secret '\(name)': resolved via \(provider)")
             result[name] = value
         }
 

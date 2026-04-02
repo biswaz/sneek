@@ -7,18 +7,25 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header with daemon toggle
             HStack {
                 Text("Sneek").font(.headline)
                 Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(appState.daemonRunning ? .green : .red)
-                        .frame(width: 8, height: 8)
-                    Text(appState.daemonRunning ? "running" : "stopped")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Button {
+                    if appState.daemonRunning { appState.stopDaemon() }
+                    else { appState.startDaemon() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(appState.daemonRunning ? .green : .red)
+                            .frame(width: 8, height: 8)
+                        Text(appState.daemonRunning ? "running" : "stopped")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .buttonStyle(.plain)
+                .help(appState.daemonRunning ? "Click to stop daemon" : "Click to start daemon")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -37,7 +44,7 @@ struct MenuBarView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(appState.filteredCommands) { cmd in
-                        CommandRow(command: cmd)
+                        CommandRow(command: cmd, tunnelStatus: appState.tunnelStatuses[cmd.name])
                     }
                 }
                 .padding(.horizontal, 8)
@@ -78,11 +85,18 @@ struct MenuBarView: View {
         }
         .frame(width: 320)
         .onAppear { appState.refreshStatus() }
+        .alert("Set up Claude Code?", isPresented: $appState.showFirstRunAlert) {
+            Button("Install MCP") { appState.installMCP() }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("Sneek can integrate with Claude Code so your commands appear as MCP tools. Set it up now?")
+        }
     }
 }
 
 struct CommandRow: View {
     let command: CommandConfig
+    let tunnelStatus: String?
 
     var body: some View {
         HStack {
@@ -93,7 +107,9 @@ struct CommandRow: View {
             Spacer()
             HStack(spacing: 4) {
                 if command.tunnel != nil {
-                    Badge(text: "tunnel", color: .green)
+                    let status = tunnelStatus ?? "down"
+                    let color: Color = status == "up" ? .green : status == "reconnecting" ? .yellow : .red
+                    Badge(text: "tunnel", color: color)
                 }
                 if command.mcp?.enabled == true {
                     Badge(text: "MCP", color: .purple)

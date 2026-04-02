@@ -31,6 +31,7 @@ public actor SessionManager {
             let upper = input.uppercased()
             for pattern in patterns {
                 if upper.contains(pattern.uppercased()) {
+                    SneekLogger.warn("session/\(name): blocked input matching pattern '\(pattern)'")
                     throw SessionError.blockedByReadonly(pattern: pattern, input: input)
                 }
             }
@@ -92,6 +93,7 @@ public actor SessionManager {
         if let session = sessions[name] {
             session.process.terminate()
             sessions.removeValue(forKey: name)
+            SneekLogger.info("session/\(name): reaped")
         }
         idleTimers[name]?.cancel()
         idleTimers.removeValue(forKey: name)
@@ -150,6 +152,7 @@ public actor SessionManager {
 
         sessions[name] = session
         resetIdleTimer(name: name, timeout: config.idleTimeout ?? 300)
+        SneekLogger.info("session/\(name): started")
     }
 
     /// The sentinel marker that appears in command output.

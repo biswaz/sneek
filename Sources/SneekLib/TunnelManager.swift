@@ -44,6 +44,7 @@ struct TunnelState {
     var process: Process
     var status: TunnelStatus
     var config: TunnelConfig
+    var reconnectDelay: TimeInterval = 1.0
 }
 
 // MARK: - Errors
@@ -57,6 +58,7 @@ public enum TunnelError: Error {
 
 public actor SSHTunnelManager: TunnelManagerProtocol {
     private var tunnels: [String: TunnelState] = [:]
+    private var monitorTask: Task<Void, Never>?
 
     public init() {}
 
@@ -67,10 +69,113 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
                 return
             }
             // Process running but port unhealthy — tear down and respawn
+            SneekLogger.warn("tunnel/\(name): health check failed on port \(tunnel.localPort), respawning")
             existing.process.terminate()
             tunnels.removeValue(forKey: name)
         }
 
+        let process = try spawnSSH(tunnel: tunnel)
+
+        // Give ssh a moment to establish the forward, then health-check
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+
+        let healthy = TCPHealthCheck.check(port: tunnel.localPort)
+        if !healthy {
+            process.terminate()
+            throw TunnelError.healthCheckFailed(port: tunnel.localPort)
+        }
+
+        tunnels[name] = TunnelState(process: process, status: .up, config: tunnel)
+        SneekLogger.info("tunnel/\(name): up on port \(tunnel.localPort)")
+    }
+
+    public func tearDown(_ name: String) async throws {
+        guard let state = tunnels.removeValue(forKey: name) else { return }
+        if state.process.isRunning {
+            state.process.terminate()
+        }
+        SneekLogger.info("tunnel/\(name): torn down")
+    }
+
+    public func status(_ name: String) async -> TunnelStatus {
+        guard let state = tunnels[name] else { return .down }
+        if !state.process.isRunning { return .down }
+        return state.status
+    }
+
+    public func tearDownAll() async {
+        for (_, state) in tunnels {
+            if state.process.isRunning {
+                state.process.terminate()
+            }
+        }
+        tunnels.removeAll()
+    }
+
+    // MARK: - Health Monitoring
+
+    public func startMonitoring() {
+        guard monitorTask == nil else { return }
+        monitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                guard !Task.isCancelled else { break }
+                await self?.checkAllTunnels()
+            }
+        }
+        SneekLogger.info("tunnel monitor: started")
+    }
+
+    public func stopMonitoring() {
+        monitorTask?.cancel()
+        monitorTask = nil
+        SneekLogger.info("tunnel monitor: stopped")
+    }
+
+    private func checkAllTunnels() async {
+        for (name, state) in tunnels {
+            let processAlive = state.process.isRunning
+            let portHealthy = processAlive && TCPHealthCheck.check(port: state.config.localPort, timeout: 1.0)
+
+            if portHealthy { continue }
+
+            SneekLogger.warn("tunnel/\(name): unhealthy (process running: \(processAlive)), reconnecting")
+            tunnels[name]?.status = .reconnecting
+
+            // Tear down old process
+            if processAlive {
+                state.process.terminate()
+            }
+
+            // Exponential backoff reconnect
+            let delay = state.reconnectDelay
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+
+            do {
+                let newProcess = try spawnSSH(tunnel: state.config)
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s for ssh to bind
+
+                if TCPHealthCheck.check(port: state.config.localPort) {
+                    tunnels[name] = TunnelState(process: newProcess, status: .up, config: state.config, reconnectDelay: 1.0)
+                    SneekLogger.info("tunnel/\(name): reconnected successfully")
+                } else {
+                    newProcess.terminate()
+                    let nextDelay = min(delay * 2, 30.0)
+                    tunnels[name] = TunnelState(process: state.process, status: .down, config: state.config, reconnectDelay: nextDelay)
+                    SneekLogger.error("tunnel/\(name): reconnect failed, next retry in \(nextDelay)s")
+                }
+            } catch {
+                let nextDelay = min(delay * 2, 30.0)
+                tunnels[name] = TunnelState(process: state.process, status: .down, config: state.config, reconnectDelay: nextDelay)
+                SneekLogger.error("tunnel/\(name): ssh spawn failed: \(error), next retry in \(nextDelay)s")
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func spawnSSH(tunnel: TunnelConfig) throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
 
@@ -94,37 +199,6 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
             throw TunnelError.sshSpawnFailed(error.localizedDescription)
         }
 
-        // Give ssh a moment to establish the forward, then health-check
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-
-        let healthy = TCPHealthCheck.check(port: tunnel.localPort)
-        if !healthy {
-            process.terminate()
-            throw TunnelError.healthCheckFailed(port: tunnel.localPort)
-        }
-
-        tunnels[name] = TunnelState(process: process, status: .up, config: tunnel)
-    }
-
-    public func tearDown(_ name: String) async throws {
-        guard let state = tunnels.removeValue(forKey: name) else { return }
-        if state.process.isRunning {
-            state.process.terminate()
-        }
-    }
-
-    public func status(_ name: String) async -> TunnelStatus {
-        guard let state = tunnels[name] else { return .down }
-        if !state.process.isRunning { return .down }
-        return state.status
-    }
-
-    public func tearDownAll() async {
-        for (_, state) in tunnels {
-            if state.process.isRunning {
-                state.process.terminate()
-            }
-        }
-        tunnels.removeAll()
+        return process
     }
 }

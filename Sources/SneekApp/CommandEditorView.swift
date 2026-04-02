@@ -109,6 +109,7 @@ struct CommandFormView: View {
     @State private var tunnelLocalPort: String
     @State private var tunnelRemoteHost: String
     @State private var tunnelRemotePort: String
+    @State private var tunnelAutoConnect: Bool
 
     // MCP
     @State private var mcpEnabled: Bool
@@ -155,6 +156,7 @@ struct CommandFormView: View {
         _tunnelLocalPort = State(initialValue: t.map { String($0.localPort) } ?? "")
         _tunnelRemoteHost = State(initialValue: t?.remoteHost ?? "")
         _tunnelRemotePort = State(initialValue: t.map { String($0.remotePort) } ?? "")
+        _tunnelAutoConnect = State(initialValue: t?.autoConnect ?? false)
 
         _mcpEnabled = State(initialValue: command.mcp?.enabled ?? false)
         _mcpToolName = State(initialValue: command.mcp?.toolName ?? "")
@@ -273,6 +275,7 @@ struct CommandFormView: View {
                         TextField("Remote Host", text: $tunnelRemoteHost)
                         TextField("Remote Port", text: $tunnelRemotePort)
                     }
+                    Toggle("Auto-connect on daemon start", isOn: $tunnelAutoConnect)
                 }
             }
 
@@ -331,7 +334,8 @@ struct CommandFormView: View {
             identityKey: tunnelIdentityKey.isEmpty ? nil : tunnelIdentityKey,
             localPort: Int(tunnelLocalPort) ?? 0,
             remoteHost: tunnelRemoteHost,
-            remotePort: Int(tunnelRemotePort) ?? 0
+            remotePort: Int(tunnelRemotePort) ?? 0,
+            autoConnect: tunnelAutoConnect ? true : nil
         ) : nil
 
         let mcp: MCPConfig? = mcpEnabled ? MCPConfig(

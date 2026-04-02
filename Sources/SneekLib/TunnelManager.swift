@@ -62,16 +62,45 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
 
     public init() {}
 
+    /// Kill stale SSH tunnel processes on a port — only kills ssh processes
+    /// with our specific -L forward pattern, not arbitrary processes.
+    private func killStaleTunnel(on port: Int, tunnel: TunnelConfig) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        // Match: ssh processes with our exact local forward pattern
+        p.arguments = ["-f", "ssh.*-L.*\(port):\(tunnel.remoteHost):\(tunnel.remotePort).*\(tunnel.host)"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let pids = String(data: data, encoding: .utf8)?
+            .split(separator: "\n")
+            .compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) } ?? []
+        for pid in pids {
+            SneekLogger.info("tunnel: killing stale ssh process \(pid) (port \(port) → \(tunnel.remoteHost):\(tunnel.remotePort))")
+            kill(pid, SIGTERM)
+        }
+        if !pids.isEmpty {
+            usleep(200_000)
+        }
+    }
+
     public func ensureUp(_ name: String, tunnel: TunnelConfig) async throws {
         // If already tracked and process is running, verify health
         if let existing = tunnels[name], existing.process.isRunning {
             if TCPHealthCheck.check(port: tunnel.localPort, timeout: 1.0) {
                 return
             }
-            // Process running but port unhealthy — tear down and respawn
             SneekLogger.warn("tunnel/\(name): health check failed on port \(tunnel.localPort), respawning")
             existing.process.terminate()
             tunnels.removeValue(forKey: name)
+        }
+
+        // Kill stale SSH tunnel from a previous daemon run (matches our exact pattern only)
+        if TCPHealthCheck.check(port: tunnel.localPort, timeout: 0.5) {
+            killStaleTunnel(on: tunnel.localPort, tunnel: tunnel)
         }
 
         let process = try spawnSSH(tunnel: tunnel)

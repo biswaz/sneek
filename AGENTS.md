@@ -92,8 +92,7 @@ swift run Sneek          # Launch GUI (menubar + dock)
 
 **To install binaries:**
 ```bash
-swift build -c release
-cp .build/release/sneekd /usr/local/bin/sneekd
+swift build -c release && cp .build/release/sneekd /usr/local/bin/sneekd
 ```
 
 ## Config

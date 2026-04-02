@@ -7,7 +7,8 @@ Prioritized by impact. Items marked **(spec)** were in the design spec. Items ma
 1. ~~No variables/secrets editor in the GUI.~~ **DONE** — Key-value editors for variables and secrets with provider picker (Keychain/1Password/Bitwarden/Env).
 2. ~~Daemon runs foreground only.~~ **DONE** — `sneekd install` creates launchd plist for auto-start. PID file written. `sneekd uninstall` removes it.
 3. ~~`sneekd mcp-serve` creates its own managers.~~ **DONE** — MCP delegates to daemon via IPC.
-4. **Session mode requires input on every call.** **(discovered)** `Daemon.swift:150` returns error if `input` is nil for session mode. Can't do `sneekd run pg-prod` interactively. Works fine for MCP (Claude always sends input).
+4. **Config reload not working in daemon/CLI.** **(discovered)** `sneekd list` and daemon IPC calls re-read config from disk each time (creating a new `ConfigStore`), but `sneekd list` is fast. The real issue: the daemon's `ConfigStore` instance is loaded once at startup. The `startWatching()` DispatchSource fires on directory changes, but `reload()` only updates the in-memory `commands` dict — the daemon's `handleRequest` already captured `configStore` by reference so it sees updates. However, `sneekd list` creates its own `ConfigStore` each time so it always sees fresh data. **The bug is likely that new files added to the commands dir don't trigger the DispatchSource `.write` event consistently.** Needs investigation.
+5. **Session mode requires input on every call.** **(discovered)** `Daemon.swift:150` returns error if `input` is nil for session mode. Can't do `sneekd run pg-prod` interactively. Works fine for MCP (Claude always sends input).
 5. ~~IPC buffer is 4096 bytes.~~ **DONE** — Buffer 65KB, delimiter check on accumulated data.
 
 ## P1 — Important for reliability

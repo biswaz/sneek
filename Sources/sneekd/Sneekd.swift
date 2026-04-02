@@ -148,6 +148,7 @@ struct List: ParsableCommand {
         let configStore = try ConfigStore(baseDir: defaultConfigDir())
         for (name, cmd) in configStore.commands.sorted(by: { $0.key < $1.key }) {
             var flags: [String] = []
+            if cmd.enabled == false { flags.append("disabled") }
             if cmd.tunnel != nil { flags.append("tunnel") }
             if cmd.mcp?.enabled == true { flags.append("mcp") }
             if cmd.readonly == true { flags.append("read-only") }

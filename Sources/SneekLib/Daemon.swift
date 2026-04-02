@@ -23,6 +23,19 @@ public actor Daemon {
 
         SneekLogger.info("daemon: starting")
         try ipcServer.start()
+
+        // Watch for config changes — start tunnels for newly enabled commands
+        configStore.onChange = { [weak self] in
+            guard let self else { return }
+            Task {
+                for (name, cmd) in self.configStore.commands {
+                    if cmd.enabled == false { continue }
+                    if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
+                        try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
+                    }
+                }
+            }
+        }
         configStore.startWatching()
 
         let sessionMgr = sessionManager
@@ -39,8 +52,9 @@ public actor Daemon {
             return await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
         }
 
-        // Start auto-connect tunnels
+        // Start auto-connect tunnels (skip disabled commands)
         for (name, cmd) in configStore.commands {
+            if cmd.enabled == false { continue }
             if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
                 try? await tunnelManager.ensureUp(name, tunnel: tunnel)
             }

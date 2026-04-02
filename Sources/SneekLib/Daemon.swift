@@ -35,8 +35,13 @@ public actor Daemon {
                         await self.sessionManager.reap(name)
                         continue
                     }
-                    if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
-                        try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
+                    if let tunnel = cmd.tunnel {
+                        if tunnel.autoConnect == true {
+                            try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
+                        }
+                    } else {
+                        // Tunnel config removed — tear down if running
+                        try? await self.tunnelManager.tearDown(name)
                     }
                 }
             }

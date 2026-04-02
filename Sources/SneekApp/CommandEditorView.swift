@@ -6,7 +6,6 @@ struct CommandEditorView: View {
 
     var body: some View {
         NavigationSplitView {
-            // Sidebar
             List(appState.filteredCommands, selection: $appState.selectedCommand) { cmd in
                 Text(cmd.name)
             }
@@ -29,7 +28,7 @@ struct CommandEditorView: View {
             if let name = appState.selectedCommand,
                let cmd = appState.commands.first(where: { $0.name == name }) {
                 CommandFormView(command: cmd)
-                    .id(name) // force refresh when selection changes
+                    .id(name)
             } else {
                 Text("Select a command")
                     .foregroundStyle(.secondary)
@@ -37,6 +36,56 @@ struct CommandEditorView: View {
         }
     }
 }
+
+// MARK: - Helper types for dynamic rows
+
+struct VariableRow: Identifiable {
+    let id = UUID()
+    var key: String
+    var value: String
+}
+
+struct SecretRow: Identifiable {
+    let id = UUID()
+    var key: String
+    var provider: String  // "keychain", "1password", "bitwarden", "env"
+    var reference: String // the key/ref/item/var value
+}
+
+enum KnownCommandType: String, CaseIterable {
+    case postgres = "Postgres"
+    case mysql = "MySQL"
+    case redis = "Redis"
+    case custom = "Custom"
+
+    var defaultSetupCommands: String {
+        switch self {
+        case .postgres: return "SET default_transaction_read_only = on;"
+        case .mysql: return "SET SESSION TRANSACTION READ ONLY;"
+        case .redis: return ""
+        case .custom: return ""
+        }
+    }
+
+    var defaultBlockedPatterns: String {
+        switch self {
+        case .postgres, .mysql: return "DROP, DELETE, UPDATE, INSERT, ALTER, TRUNCATE"
+        case .redis: return "DEL, FLUSHDB, FLUSHALL, SET, EXPIRE"
+        case .custom: return ""
+        }
+    }
+
+    var defaultSentinel: String {
+        switch self {
+        case .postgres: return #"\echo __SNEEK_DONE__"#
+        case .mysql: return "SELECT '__SNEEK_DONE__';"
+        case .redis: return "ECHO __SNEEK_DONE__"
+        case .custom: return "echo __SNEEK_DONE__"
+        }
+    }
+}
+
+// MARK: - Form
 
 struct CommandFormView: View {
     @EnvironmentObject var appState: AppState
@@ -46,6 +95,10 @@ struct CommandFormView: View {
     @State private var command: String
     @State private var readonly: Bool
     @State private var tags: String
+
+    // Variables & Secrets
+    @State private var variables: [VariableRow]
+    @State private var secrets: [SecretRow]
 
     // Tunnel
     @State private var hasTunnel: Bool
@@ -61,7 +114,7 @@ struct CommandFormView: View {
     @State private var mcpToolName: String
     @State private var mcpToolDescription: String
 
-    // Setup
+    // Access control
     @State private var setupCommands: String
     @State private var blockedPatterns: String
 
@@ -75,6 +128,22 @@ struct CommandFormView: View {
         _command = State(initialValue: command.command)
         _readonly = State(initialValue: command.readonly ?? false)
         _tags = State(initialValue: (command.tags ?? []).joined(separator: ", "))
+
+        // Convert variables dict to rows
+        _variables = State(initialValue: (command.variables ?? [:]).map { VariableRow(key: $0.key, value: $0.value) }.sorted { $0.key < $1.key })
+
+        // Convert secrets dict to rows
+        _secrets = State(initialValue: (command.secrets ?? [:]).map { entry in
+            let (provider, ref): (String, String) = {
+                switch entry.value {
+                case .keychain(let key): return ("keychain", key)
+                case .onePassword(let ref): return ("1password", ref)
+                case .bitwarden(let item): return ("bitwarden", item)
+                case .env(let variable): return ("env", variable)
+                }
+            }()
+            return SecretRow(key: entry.key, provider: provider, reference: ref)
+        }.sorted { $0.key < $1.key })
 
         let t = command.tunnel
         _hasTunnel = State(initialValue: t != nil)
@@ -110,11 +179,77 @@ struct CommandFormView: View {
                 TextField("Command", text: $command, axis: .vertical)
                     .lineLimit(3...6)
                     .font(.system(.body, design: .monospaced))
+                Text("Use {{variable_name}} for interpolation")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Variables") {
+                ForEach($variables) { $row in
+                    HStack {
+                        TextField("Key", text: $row.key)
+                            .frame(width: 120)
+                        TextField("Value", text: $row.value)
+                        Button(role: .destructive) {
+                            variables.removeAll { $0.id == row.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Button("Add Variable") {
+                    variables.append(VariableRow(key: "", value: ""))
+                }
+                .font(.caption)
+            }
+
+            Section("Secrets") {
+                ForEach($secrets) { $row in
+                    HStack {
+                        TextField("Variable", text: $row.key)
+                            .frame(width: 100)
+                        Picker("", selection: $row.provider) {
+                            Text("Keychain").tag("keychain")
+                            Text("1Password").tag("1password")
+                            Text("Bitwarden").tag("bitwarden")
+                            Text("Env Var").tag("env")
+                        }
+                        .frame(width: 110)
+                        TextField("Key / Reference", text: $row.reference)
+                        Button(role: .destructive) {
+                            secrets.removeAll { $0.id == row.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Button("Add Secret") {
+                    secrets.append(SecretRow(key: "", provider: "keychain", reference: ""))
+                }
+                .font(.caption)
+                Text("Secrets are never stored — only the provider reference is saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Access Control") {
                 Toggle("Read-Only", isOn: $readonly)
                 if readonly {
+                    Picker("Presets", selection: Binding(
+                        get: { KnownCommandType.custom },
+                        set: { type in
+                            setupCommands = type.defaultSetupCommands
+                            blockedPatterns = type.defaultBlockedPatterns
+                        }
+                    )) {
+                        ForEach(KnownCommandType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
+                    }
+                    .help("Auto-fill setup commands and blocked patterns for known types")
+
                     TextField("Setup Commands", text: $setupCommands, axis: .vertical)
                         .lineLimit(2...4)
                         .font(.system(.body, design: .monospaced))
@@ -161,6 +296,32 @@ struct CommandFormView: View {
 
     private func save() {
         let tagList = tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+
+        // Convert variable rows to dict
+        var varsDict: [String: String]? = nil
+        let filteredVars = variables.filter { !$0.key.isEmpty }
+        if !filteredVars.isEmpty {
+            varsDict = Dictionary(uniqueKeysWithValues: filteredVars.map { ($0.key, $0.value) })
+        }
+
+        // Convert secret rows to dict
+        var secretsDict: [String: SecretRef]? = nil
+        let filteredSecrets = secrets.filter { !$0.key.isEmpty && !$0.reference.isEmpty }
+        if !filteredSecrets.isEmpty {
+            secretsDict = [:]
+            for row in filteredSecrets {
+                let ref: SecretRef
+                switch row.provider {
+                case "keychain": ref = .keychain(key: row.reference)
+                case "1password": ref = .onePassword(ref: row.reference)
+                case "bitwarden": ref = .bitwarden(item: row.reference)
+                case "env": ref = .env(variable: row.reference)
+                default: ref = .keychain(key: row.reference)
+                }
+                secretsDict?[row.key] = ref
+            }
+        }
+
         let tunnel: TunnelConfig? = hasTunnel ? TunnelConfig(
             host: tunnelHost,
             user: tunnelUser,
@@ -186,13 +347,14 @@ struct CommandFormView: View {
             mode: mode,
             readonly: readonly ? true : nil,
             command: command,
+            secrets: secretsDict,
+            variables: varsDict,
             tunnel: tunnel,
             setupCommands: setupCmds,
             blockedPatterns: blocked,
             mcp: mcp
         )
 
-        // If name changed, delete old
         if name != originalName {
             appState.delete(originalName)
         }

@@ -17,6 +17,8 @@ struct Sneekd: AsyncParsableCommand {
             MCPServe.self,
             GenerateScripts.self,
             InstallMCP.self,
+            Install.self,
+            Uninstall.self,
         ]
     )
 }
@@ -38,6 +40,11 @@ struct Start: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Start the daemon")
 
     func run() async throws {
+        // Write PID file
+        let pidPath = defaultConfigDir().appendingPathComponent("sneekd.pid")
+        try String(ProcessInfo.processInfo.processIdentifier).write(to: pidPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: pidPath) }
+
         let configStore = try ConfigStore(baseDir: defaultConfigDir())
         let daemon = Daemon(configStore: configStore)
         print("sneekd: starting daemon...")
@@ -195,5 +202,70 @@ struct InstallMCP: ParsableCommand {
         let sneekdPath = ProcessInfo.processInfo.arguments[0]
         try ScriptGenerator.installMCP(sneekdPath: sneekdPath, settingsPath: settingsPath)
         print("sneek MCP server added to \(settingsPath)")
+    }
+}
+
+// MARK: - Install (launchd)
+
+struct Install: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Install daemon as launchd service (auto-start on login)")
+
+    func run() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let sneekdPath = ProcessInfo.processInfo.arguments[0]
+        let plistPath = home.appendingPathComponent("Library/LaunchAgents/com.sneek.daemon.plist")
+        let logsDir = defaultConfigDir().appendingPathComponent("logs")
+
+        try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent("Library/LaunchAgents"),
+            withIntermediateDirectories: true
+        )
+
+        let plist: [String: Any] = [
+            "Label": "com.sneek.daemon",
+            "ProgramArguments": [sneekdPath, "start"],
+            "RunAtLoad": true,
+            "KeepAlive": true,
+            "StandardOutPath": logsDir.appendingPathComponent("sneekd.log").path,
+            "StandardErrorPath": logsDir.appendingPathComponent("sneekd.err").path,
+        ]
+
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: plistPath)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["load", plistPath.path]
+        try process.run()
+        process.waitUntilExit()
+
+        print("Installed and started. Daemon will auto-start on login.")
+        print("  Plist: \(plistPath.path)")
+        print("  Logs:  \(logsDir.path)/sneekd.{log,err}")
+    }
+}
+
+// MARK: - Uninstall
+
+struct Uninstall: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Uninstall daemon launchd service")
+
+    func run() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let plistPath = home.appendingPathComponent("Library/LaunchAgents/com.sneek.daemon.plist")
+
+        if FileManager.default.fileExists(atPath: plistPath.path) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", plistPath.path]
+            try process.run()
+            process.waitUntilExit()
+
+            try FileManager.default.removeItem(at: plistPath)
+            print("Uninstalled. Daemon will no longer auto-start.")
+        } else {
+            print("Not installed (no plist found).")
+        }
     }
 }

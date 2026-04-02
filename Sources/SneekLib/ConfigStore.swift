@@ -65,26 +65,66 @@ public final class ConfigStore: @unchecked Sendable {
         globalConfig = config
     }
 
-    public func startWatching() {
-        let fd = open(commandsDir.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+    private var pollTimer: DispatchSourceTimer?
+    private var lastCommandsHash: Int = 0
 
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: .main
-        )
-        source.setEventHandler { [weak self] in
-            try? self?.reload()
-            self?.onChange?()
+    public func startWatching() {
+        // DispatchSource for directory-level changes (file add/remove)
+        let fd = open(commandsDir.path, O_EVTONLY)
+        if fd >= 0 {
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .rename, .delete, .attrib],
+                queue: .main
+            )
+            source.setEventHandler { [weak self] in
+                self?.checkAndReload()
+            }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            dispatchSource = source
         }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        dispatchSource = source
+
+        // Poll every 3 seconds for content changes (edits to existing files)
+        lastCommandsHash = computeHash()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 3, repeating: 3)
+        timer.setEventHandler { [weak self] in
+            self?.checkAndReload()
+        }
+        timer.resume()
+        pollTimer = timer
     }
 
     public func stopWatching() {
         dispatchSource?.cancel()
+        pollTimer?.cancel()
+        pollTimer = nil
         dispatchSource = nil
+    }
+
+    private func checkAndReload() {
+        let newHash = computeHash()
+        if newHash != lastCommandsHash {
+            lastCommandsHash = newHash
+            try? reload()
+            onChange?()
+        }
+    }
+
+    private func computeHash() -> Int {
+        var hash = 0
+        if let files = try? FileManager.default.contentsOfDirectory(
+            at: commandsDir, includingPropertiesForKeys: [.contentModificationDateKey]
+        ).filter({ $0.pathExtension == "json" }) {
+            for file in files {
+                hash ^= file.lastPathComponent.hashValue
+                if let attrs = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
+                   let date = attrs.contentModificationDate {
+                    hash ^= date.hashValue
+                }
+            }
+        }
+        return hash
     }
 }

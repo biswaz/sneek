@@ -35,12 +35,12 @@ public actor Daemon {
                         await self.sessionManager.reap(name)
                         continue
                     }
-                    if let tunnel = cmd.tunnel {
+                    if let tunnel = cmd.tunnel, tunnel.enabled != false {
                         if tunnel.autoConnect == true {
                             try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
                         }
                     } else {
-                        // Tunnel config removed — tear down if running
+                        // Tunnel config removed or disabled — tear down if running
                         try? await self.tunnelManager.tearDown(name)
                     }
                 }
@@ -62,10 +62,10 @@ public actor Daemon {
             return await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
         }
 
-        // Start auto-connect tunnels (skip disabled commands)
+        // Start auto-connect tunnels (skip disabled commands and disabled tunnels)
         for (name, cmd) in configStore.commands {
             if cmd.enabled == false { continue }
-            if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
+            if let tunnel = cmd.tunnel, tunnel.enabled != false, tunnel.autoConnect == true {
                 try? await tunnelManager.ensureUp(name, tunnel: tunnel)
             }
         }
@@ -179,8 +179,8 @@ public actor Daemon {
             return .fail("template error: \(error)")
         }
 
-        // Ensure tunnel is up
-        if let tunnel = cmd.tunnel {
+        // Ensure tunnel is up (if configured and enabled)
+        if let tunnel = cmd.tunnel, tunnel.enabled != false {
             do {
                 try await tunnelManager.ensureUp(name, tunnel: tunnel)
             } catch {

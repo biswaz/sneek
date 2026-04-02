@@ -131,6 +131,7 @@ public enum SecretRef: Codable, Equatable, Sendable {
 // MARK: - Tunnel Configuration
 
 public struct TunnelConfig: Codable, Equatable, Sendable {
+    public var enabled: Bool?
     public var host: String
     public var user: String
     public var identityKey: String?
@@ -140,7 +141,7 @@ public struct TunnelConfig: Codable, Equatable, Sendable {
     public var autoConnect: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case host, user
+        case enabled, host, user
         case identityKey = "identity_key"
         case localPort = "local_port"
         case remoteHost = "remote_host"
@@ -149,6 +150,7 @@ public struct TunnelConfig: Codable, Equatable, Sendable {
     }
 
     public init(
+        enabled: Bool? = nil,
         host: String,
         user: String,
         identityKey: String? = nil,
@@ -157,6 +159,7 @@ public struct TunnelConfig: Codable, Equatable, Sendable {
         remotePort: Int,
         autoConnect: Bool? = nil
     ) {
+        self.enabled = enabled
         self.host = host
         self.user = user
         self.identityKey = identityKey

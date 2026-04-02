@@ -149,7 +149,7 @@ struct CommandFormView: View {
         }.sorted { $0.key < $1.key })
 
         let t = command.tunnel
-        _hasTunnel = State(initialValue: t != nil)
+        _hasTunnel = State(initialValue: t != nil && t?.enabled != false)
         _tunnelHost = State(initialValue: t?.host ?? "")
         _tunnelUser = State(initialValue: t?.user ?? "")
         _tunnelIdentityKey = State(initialValue: t?.identityKey ?? "")
@@ -328,7 +328,10 @@ struct CommandFormView: View {
             }
         }
 
-        let tunnel: TunnelConfig? = hasTunnel ? TunnelConfig(
+        // Always save tunnel data if any fields are filled — toggle controls enabled flag
+        let hasAnyTunnelData = !tunnelHost.isEmpty || !tunnelRemoteHost.isEmpty
+        let tunnel: TunnelConfig? = (hasTunnel || hasAnyTunnelData) ? TunnelConfig(
+            enabled: hasTunnel ? true : false,
             host: tunnelHost,
             user: tunnelUser,
             identityKey: tunnelIdentityKey.isEmpty ? nil : tunnelIdentityKey,

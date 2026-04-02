@@ -10,6 +10,7 @@ struct TestMain {
         runSessionManagerTests()
         runMCPServerTests()
         runScriptGeneratorTests()
+        runIntegrationTests()
         print("")
         report()
     }

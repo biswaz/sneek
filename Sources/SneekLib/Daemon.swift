@@ -1,0 +1,195 @@
+import Foundation
+
+public actor Daemon {
+    public let configStore: ConfigStore
+    public let sessionManager: SessionManager
+    public let tunnelManager: SSHTunnelManager
+    private let ipcServer: IPCServer
+
+    public init(configStore: ConfigStore) {
+        self.configStore = configStore
+        self.sessionManager = SessionManager()
+        self.tunnelManager = SSHTunnelManager()
+
+        let socketPath = configStore.baseDir.appendingPathComponent("sneekd.sock").path
+        self.ipcServer = IPCServer(socketPath: socketPath)
+    }
+
+    public func start() async throws {
+        try ipcServer.start()
+
+        let sessionMgr = sessionManager
+        let tunnelMgr = tunnelManager
+        let store = configStore
+
+        ipcServer.handler = { request in
+            await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
+        }
+
+        // Start auto-connect tunnels
+        for (name, cmd) in configStore.commands {
+            if let tunnel = cmd.tunnel, tunnel.autoConnect == true {
+                try? await tunnelManager.ensureUp(name, tunnel: tunnel)
+            }
+        }
+
+        await ipcServer.acceptLoop()
+    }
+
+    public func stop() async {
+        ipcServer.stop()
+        await sessionManager.reapAll()
+        await tunnelManager.tearDownAll()
+    }
+
+    // MARK: - Request Handling
+
+    private static func handleRequest(
+        _ request: IPCRequest,
+        configStore: ConfigStore,
+        sessionManager: SessionManager,
+        tunnelManager: SSHTunnelManager
+    ) async -> IPCResponse {
+        switch request.action {
+        case .status:
+            return await statusResponse(configStore: configStore, sessionManager: sessionManager, tunnelManager: tunnelManager)
+
+        case .run:
+            guard let cmdName = request.command else {
+                return .fail("missing command name")
+            }
+            return await runCommand(name: cmdName, input: request.input, configStore: configStore, sessionManager: sessionManager, tunnelManager: tunnelManager)
+
+        case .tunnel:
+            guard let cmdName = request.command, let op = request.operation else {
+                return .fail("missing command name or operation")
+            }
+            return await tunnelOp(name: cmdName, operation: op, configStore: configStore, tunnelManager: tunnelManager)
+
+        case .list:
+            let names = configStore.commands.keys.sorted()
+            return .ok(names.joined(separator: "\n"))
+
+        case .shutdown:
+            return .ok("shutting down")
+        }
+    }
+
+    private static func statusResponse(
+        configStore: ConfigStore,
+        sessionManager: SessionManager,
+        tunnelManager: SSHTunnelManager
+    ) async -> IPCResponse {
+        var lines: [String] = ["daemon: running"]
+
+        let sessions = await sessionManager.activeSessions()
+        lines.append("sessions: \(sessions.count)")
+
+        for (name, cmd) in configStore.commands {
+            if cmd.tunnel != nil {
+                let ts = await tunnelManager.status(name)
+                lines.append("tunnel/\(name): \(ts)")
+            }
+        }
+
+        return .ok(lines.joined(separator: "\n"))
+    }
+
+    private static func runCommand(
+        name: String,
+        input: String?,
+        configStore: ConfigStore,
+        sessionManager: SessionManager,
+        tunnelManager: SSHTunnelManager
+    ) async -> IPCResponse {
+        guard let cmd = configStore.commands[name] else {
+            return .fail("unknown command: \(name)")
+        }
+
+        // Resolve secrets + variables
+        let resolver = SecretResolver(
+            secrets: cmd.secrets ?? [:],
+            variables: cmd.variables ?? [:]
+        )
+
+        let allVars: [String: String]
+        do {
+            allVars = try await resolver.resolveAll()
+        } catch {
+            return .fail("secret resolution failed: \(error)")
+        }
+
+        // Add local_port from tunnel if present
+        var vars = allVars
+        if let tunnel = cmd.tunnel {
+            vars["local_port"] = String(tunnel.localPort)
+        }
+
+        // Interpolate command template
+        let resolvedCommand: String
+        do {
+            resolvedCommand = try TemplateEngine.render(cmd.command, variables: vars)
+        } catch {
+            return .fail("template error: \(error)")
+        }
+
+        // Ensure tunnel is up
+        if let tunnel = cmd.tunnel {
+            do {
+                try await tunnelManager.ensureUp(name, tunnel: tunnel)
+            } catch {
+                return .fail("tunnel failed: \(error)")
+            }
+        }
+
+        // Execute
+        do {
+            let result: String
+            switch cmd.mode {
+            case .session:
+                guard let input = input else {
+                    return .fail("session mode requires input")
+                }
+                result = try await sessionManager.send(input: input, to: name, config: cmd, resolvedCommand: resolvedCommand)
+            case .oneshot:
+                result = try await sessionManager.runOneshot(command: resolvedCommand, input: input)
+            }
+            return .ok(result)
+        } catch {
+            return .fail("execution failed: \(error)")
+        }
+    }
+
+    private static func tunnelOp(
+        name: String,
+        operation: String,
+        configStore: ConfigStore,
+        tunnelManager: SSHTunnelManager
+    ) async -> IPCResponse {
+        guard let cmd = configStore.commands[name], let tunnel = cmd.tunnel else {
+            return .fail("no tunnel config for: \(name)")
+        }
+
+        switch operation {
+        case "up":
+            do {
+                try await tunnelManager.ensureUp(name, tunnel: tunnel)
+                return .ok("tunnel up")
+            } catch {
+                return .fail("tunnel up failed: \(error)")
+            }
+        case "down":
+            do {
+                try await tunnelManager.tearDown(name)
+                return .ok("tunnel down")
+            } catch {
+                return .fail("tunnel down failed: \(error)")
+            }
+        case "status":
+            let s = await tunnelManager.status(name)
+            return .ok("\(s)")
+        default:
+            return .fail("unknown tunnel operation: \(operation)")
+        }
+    }
+}

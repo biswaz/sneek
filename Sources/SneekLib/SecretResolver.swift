@@ -58,7 +58,13 @@ public struct KeychainProvider: SecretProvider {
     public init() {}
 
     public func resolve(_ key: String) async throws -> String {
-        try await runProcess("/usr/bin/security", ["find-internet-password", "-s", key, "-w"])
+        // Try generic password first (security add-generic-password / Passwords app)
+        // Fall back to internet password (security add-internet-password)
+        do {
+            return try await runProcess("/usr/bin/security", ["find-generic-password", "-s", key, "-w"])
+        } catch {
+            return try await runProcess("/usr/bin/security", ["find-internet-password", "-s", key, "-w"])
+        }
     }
 }
 

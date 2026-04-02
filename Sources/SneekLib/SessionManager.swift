@@ -145,11 +145,14 @@ public actor SessionManager {
         resetIdleTimer(name: name, timeout: config.idleTimeout ?? 300)
     }
 
+    /// The sentinel marker that appears in command output.
+    /// The sentinel *command* (e.g., `echo __SNEEK_DONE__`) produces this *output*.
+    private static let sentinelOutput = "__SNEEK_DONE__"
+
     private func readUntilSentinel(from handle: FileHandle, sentinel: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
                 var accumulated = ""
-                let sentinelLine = sentinel.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 while true {
                     let data = handle.availableData
@@ -160,9 +163,9 @@ public actor SessionManager {
                     guard let chunk = String(data: data, encoding: .utf8) else { continue }
                     accumulated += chunk
 
-                    // Check if sentinel line appeared
+                    // Check if sentinel output appeared
                     let lines = accumulated.components(separatedBy: "\n")
-                    if let idx = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == sentinelLine }) {
+                    if let idx = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == Self.sentinelOutput }) {
                         let output = lines[..<idx].joined(separator: "\n")
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         continuation.resume(returning: output)

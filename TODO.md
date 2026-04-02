@@ -6,17 +6,17 @@ Prioritized by impact. Items marked **(spec)** were in the design spec but not i
 
 1. **No variables/secrets editor in the GUI.** **(spec)** The command editor has General, Command Template, Access Control, SSH Tunnel, MCP sections — but no key-value editor for `variables` and `secrets` maps. You must edit JSON directly. This is the single biggest gap for non-technical users.
 2. **Daemon runs foreground only.** **(spec)** `sneekd start` blocks the terminal. No `sneekd install` command to create `~/Library/LaunchAgents/com.sneek.daemon.plist` for auto-start on login. No PID file written. `sneekd stop` only works via IPC (daemon must already be running).
-3. `**sneekd mcp-serve` creates its own managers.** **(discovered)** The MCP server process creates its own `SessionManager` and `SSHTunnelManager` instead of connecting to the running daemon via IPC. This means tunnels and sessions aren't shared between CLI usage and MCP usage. If the daemon has a tunnel up, MCP doesn't know about it.
+3. ~~`sneekd mcp-serve` creates its own managers.~~ **DONE** — MCP now delegates to daemon via IPC. Falls back to direct execution if daemon not running.
 4. **Session mode requires input on every call.** **(discovered)** `Daemon.swift:150` returns error if `input` is nil for session mode. Can't do `sneekd run pg-prod` to open an interactive session — must always provide input: `sneekd run pg-prod "SELECT 1"`. The spec describes both interactive and one-shot usage.
-5. **IPC buffer is 4096 bytes.** **(discovered)** `IPCProtocol.swift:92` — large query results will be truncated. Needs chunked reading or a larger/dynamic buffer.
+5. ~~IPC buffer is 4096 bytes.~~ **DONE** — Buffer increased to 65KB, delimiter check on accumulated data.
 
 ## P1 — Important for reliability
 
 1. **No tunnel auto-reconnect loop.** **(spec)** `SSHTunnelManager` checks tunnel health only when a command is run. No background monitoring, no exponential backoff retry. Spec says: "Health monitoring — daemon checks tunnel liveness periodically" and "Auto-reconnect — exponential backoff on failure." Neither is implemented.
-2. **Config file watching not activated.** **(discovered)** `ConfigStore.startWatching()` exists but `Daemon.swift` never calls it. Config changes (from GUI or manual JSON edits) aren't picked up until daemon restart.
-3. **SSH identity key tilde not expanded.** **(discovered)** `TunnelManager.swift:84` passes `tunnel.identityKey` directly to `ssh -i`. If the key is `~/.ssh/prod_key`, the tilde isn't expanded, so SSH can't find it.
-4. **Session stderr is discarded.** **(discovered)** `SessionManager.swift:121` sets `process.standardError = FileHandle.nullDevice`. If psql prints an error, the user never sees it. Stderr should be captured and returned alongside stdout.
-5. **Setup command failures are silent.** **(discovered)** `SessionManager.swift:136-142` sends setup commands and reads until sentinel, but doesn't check if the command succeeded. If `SET default_transaction_read_only = on;` fails (wrong syntax, wrong DB), the session continues as read-write.
+2. ~~Config file watching not activated.~~ **DONE** — Daemon calls `startWatching()` on startup, `stopWatching()` on shutdown.
+3. ~~SSH identity key tilde not expanded.~~ **DONE** — Uses `NSString.expandingTildeInPath`.
+4. ~~Session stderr is discarded.~~ **DONE** — Stderr merged into stdout pipe.
+5. ~~Setup command failures are silent.~~ **DONE** — Output checked for error/fatal/denied indicators; throws `setupCommandFailed`.
 6. **No logging.** **(spec)** Config has `logLevel` field, `~/.config/sneek/logs/` is in the spec, but nothing is ever logged anywhere.
 
 ## P2 — Nice to have

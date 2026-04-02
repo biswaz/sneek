@@ -98,6 +98,8 @@ struct CommandRow: View {
     let command: CommandConfig
     let tunnelStatus: String?
 
+    private var isDisabled: Bool { command.enabled == false }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -106,6 +108,9 @@ struct CommandRow: View {
             }
             Spacer()
             HStack(spacing: 4) {
+                if isDisabled {
+                    Badge(text: "off", color: .gray)
+                }
                 if command.tunnel != nil {
                     let status = tunnelStatus ?? "down"
                     let color: Color = status == "up" ? .green : status == "reconnecting" ? .yellow : .red
@@ -121,6 +126,7 @@ struct CommandRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .opacity(isDisabled ? 0.5 : 1.0)
         .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
     }
 }

@@ -85,6 +85,7 @@ public final class MCPServer: @unchecked Sendable {
         var tools: [[String: Any]] = []
 
         for (_, cmd) in configStore.commands {
+            if cmd.enabled == false { continue }
             guard let mcp = cmd.mcp, mcp.enabled else { continue }
 
             // Apply filters

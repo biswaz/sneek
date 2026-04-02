@@ -7,6 +7,7 @@ public struct CommandConfig: Codable, Equatable, Identifiable, Sendable {
 
     public var name: String
     public var description: String
+    public var enabled: Bool?
     public var tags: [String]?
     public var mode: ExecutionMode
     public var idleTimeout: Int?
@@ -26,7 +27,7 @@ public struct CommandConfig: Codable, Equatable, Identifiable, Sendable {
     public var mcp: MCPConfig?
 
     enum CodingKeys: String, CodingKey {
-        case name, description, tags, mode
+        case name, description, enabled, tags, mode
         case idleTimeout = "idle_timeout"
         case readonly, command, secrets, variables, tunnel
         case setupCommands = "setup_commands"
@@ -37,6 +38,7 @@ public struct CommandConfig: Codable, Equatable, Identifiable, Sendable {
     public init(
         name: String,
         description: String,
+        enabled: Bool? = nil,
         tags: [String]? = nil,
         mode: ExecutionMode,
         idleTimeout: Int? = nil,
@@ -52,6 +54,7 @@ public struct CommandConfig: Codable, Equatable, Identifiable, Sendable {
     ) {
         self.name = name
         self.description = description
+        self.enabled = enabled
         self.tags = tags
         self.mode = mode
         self.idleTimeout = idleTimeout

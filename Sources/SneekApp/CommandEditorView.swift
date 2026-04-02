@@ -91,6 +91,7 @@ struct CommandFormView: View {
     @EnvironmentObject var appState: AppState
     @State private var name: String
     @State private var description: String
+    @State private var enabled: Bool
     @State private var mode: ExecutionMode
     @State private var command: String
     @State private var readonly: Bool
@@ -124,6 +125,7 @@ struct CommandFormView: View {
         self.originalName = command.name
         _name = State(initialValue: command.name)
         _description = State(initialValue: command.description)
+        _enabled = State(initialValue: command.enabled ?? true)
         _mode = State(initialValue: command.mode)
         _command = State(initialValue: command.command)
         _readonly = State(initialValue: command.readonly ?? false)
@@ -165,6 +167,7 @@ struct CommandFormView: View {
     var body: some View {
         Form {
             Section("General") {
+                Toggle("Enabled", isOn: $enabled)
                 TextField("Name", text: $name)
                 TextField("Description", text: $description)
                 TextField("Tags", text: $tags)
@@ -343,6 +346,7 @@ struct CommandFormView: View {
         let cmd = CommandConfig(
             name: name,
             description: description,
+            enabled: enabled ? nil : false,
             tags: tagList.isEmpty ? nil : tagList,
             mode: mode,
             readonly: readonly ? true : nil,

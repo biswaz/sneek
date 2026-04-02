@@ -122,6 +122,9 @@ public actor Daemon {
         guard let cmd = configStore.commands[name] else {
             return .fail("unknown command: \(name)")
         }
+        if cmd.enabled == false {
+            return .fail("command '\(name)' is disabled")
+        }
 
         SneekLogger.info("daemon: executing command '\(name)' (mode: \(cmd.mode))")
 

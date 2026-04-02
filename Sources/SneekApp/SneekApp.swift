@@ -13,6 +13,7 @@ struct SneekApp: App {
         MenuBarExtra("Sneek", systemImage: "network.badge.shield.half.filled") {
             MenuBarView()
                 .environmentObject(appState)
+                .onAppear { appState.loadConfig() }
         }
         .menuBarExtraStyle(.window)
 
@@ -20,6 +21,9 @@ struct SneekApp: App {
             CommandEditorView()
                 .environmentObject(appState)
                 .frame(minWidth: 700, minHeight: 500)
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    appState.loadConfig()
+                }
         }
     }
 }

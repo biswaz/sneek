@@ -81,7 +81,8 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
             "-L", "\(tunnel.localPort):\(tunnel.remoteHost):\(tunnel.remotePort)",
         ]
         if let key = tunnel.identityKey {
-            args += ["-i", key]
+            let expanded = NSString(string: key).expandingTildeInPath
+            args += ["-i", expanded]
         }
         args.append("\(tunnel.user)@\(tunnel.host)")
 

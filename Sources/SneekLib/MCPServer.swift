@@ -13,19 +13,22 @@ public final class MCPServer: @unchecked Sendable {
     private let tunnelManager: SSHTunnelManager
     private let tagFilter: Set<String>?
     private let commandFilter: Set<String>?
+    private let ipcSocketPath: String?
 
     public init(
         configStore: ConfigStore,
         sessionManager: SessionManager,
         tunnelManager: SSHTunnelManager,
         tags: [String]? = nil,
-        commands: [String]? = nil
+        commands: [String]? = nil,
+        ipcSocketPath: String? = nil
     ) {
         self.configStore = configStore
         self.sessionManager = sessionManager
         self.tunnelManager = tunnelManager
         self.tagFilter = tags.map { Set($0) }
         self.commandFilter = commands.map { Set($0) }
+        self.ipcSocketPath = ipcSocketPath
     }
 
     // MARK: - Main Loop
@@ -127,13 +130,44 @@ public final class MCPServer: @unchecked Sendable {
         let arguments = params["arguments"] as? [String: Any]
         let input = arguments?["input"] as? String ?? ""
 
-        // Find matching command
         guard let cmd = findCommand(toolName: toolName) else {
             return makeError(id: id, code: -32602, message: "Unknown tool: \(toolName)")
         }
 
+        // Delegate to daemon via IPC if socket path is set
+        if let socketPath = ipcSocketPath {
+            return handleToolCallViaIPC(id: id, cmd: cmd, input: input, socketPath: socketPath)
+        }
+
+        // Standalone mode (tests, or no daemon running)
+        return await handleToolCallDirect(id: id, cmd: cmd, input: input)
+    }
+
+    private func handleToolCallViaIPC(id: Any?, cmd: CommandConfig, input: String, socketPath: String) -> [String: Any] {
+        let client = IPCClient(socketPath: socketPath)
+        let request = IPCRequest(action: .run, command: cmd.name, input: input.isEmpty ? nil : input)
         do {
-            // Resolve secrets and render command template
+            let response = try client.send(request)
+            if response.success {
+                return makeResult(id: id, result: [
+                    "content": [["type": "text", "text": response.output ?? ""]],
+                ])
+            } else {
+                return makeResult(id: id, result: [
+                    "content": [["type": "text", "text": "Error: \(response.error ?? "unknown")"]],
+                    "isError": true,
+                ])
+            }
+        } catch {
+            return makeResult(id: id, result: [
+                "content": [["type": "text", "text": "IPC error: \(error)"]],
+                "isError": true,
+            ])
+        }
+    }
+
+    private func handleToolCallDirect(id: Any?, cmd: CommandConfig, input: String) async -> [String: Any] {
+        do {
             let resolver = SecretResolver(
                 secrets: cmd.secrets ?? [:],
                 variables: cmd.variables ?? [:]
@@ -141,12 +175,10 @@ public final class MCPServer: @unchecked Sendable {
             let resolved = try await resolver.resolveAll()
             let renderedCommand = try TemplateEngine.render(cmd.command, variables: resolved)
 
-            // Ensure tunnel is up if configured
             if let tunnel = cmd.tunnel {
                 try await tunnelManager.ensureUp(cmd.name, tunnel: tunnel)
             }
 
-            // Execute
             let output: String
             switch cmd.mode {
             case .session:

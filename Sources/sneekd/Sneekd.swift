@@ -154,7 +154,8 @@ struct MCPServe: AsyncParsableCommand {
             sessionManager: sessionManager,
             tunnelManager: tunnelManager,
             tags: tagList,
-            commands: cmdList
+            commands: cmdList,
+            ipcSocketPath: defaultSocketPath()
         )
         try await server.run()
     }

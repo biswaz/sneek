@@ -87,14 +87,14 @@ public final class IPCClient: Sendable {
             _ = Darwin.send(fd, ptr.baseAddress!, ptr.count, 0)
         }
 
-        // Read response
+        // Read response — accumulate until newline delimiter found
         var responseData = Data()
-        var buf = [UInt8](repeating: 0, count: 4096)
+        var buf = [UInt8](repeating: 0, count: 65536)
         while true {
             let n = Darwin.recv(fd, &buf, buf.count, 0)
             if n <= 0 { break }
             responseData.append(contentsOf: buf[..<n])
-            if buf[..<n].contains(0x0a) { break }
+            if responseData.contains(0x0a) { break }
         }
 
         return try JSONDecoder().decode(IPCResponse.self, from: responseData)
@@ -171,12 +171,12 @@ public final class IPCServer: @unchecked Sendable {
         defer { close(fd) }
 
         var data = Data()
-        var buf = [UInt8](repeating: 0, count: 4096)
+        var buf = [UInt8](repeating: 0, count: 65536)
         while true {
             let n = recv(fd, &buf, buf.count, 0)
             if n <= 0 { break }
             data.append(contentsOf: buf[..<n])
-            if buf[..<n].contains(0x0a) { break }
+            if data.contains(0x0a) { break }
         }
 
         guard let request = try? JSONDecoder().decode(IPCRequest.self, from: data),

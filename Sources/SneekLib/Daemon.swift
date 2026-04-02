@@ -17,6 +17,7 @@ public actor Daemon {
 
     public func start() async throws {
         try ipcServer.start()
+        configStore.startWatching()
 
         let sessionMgr = sessionManager
         let tunnelMgr = tunnelManager
@@ -37,6 +38,7 @@ public actor Daemon {
     }
 
     public func stop() async {
+        configStore.stopWatching()
         ipcServer.stop()
         await sessionManager.reapAll()
         await tunnelManager.tearDownAll()

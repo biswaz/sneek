@@ -118,7 +118,7 @@ public actor SessionManager {
         let stdoutPipe = Pipe()
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = stdoutPipe  // merge stderr into stdout so errors are visible
 
         try process.run()
 
@@ -132,12 +132,19 @@ public actor SessionManager {
             lastUsed: Date()
         )
 
-        // Run setup commands
+        // Run setup commands — fail session if any produces error output
         if let setupCmds = config.setupCommands {
             for cmd in setupCmds {
                 let payload = cmd + "\n" + sentinel + "\n"
                 session.stdin.write(Data(payload.utf8))
-                _ = try await readUntilSentinel(from: session.stdout, sentinel: sentinel)
+                let output = try await readUntilSentinel(from: session.stdout, sentinel: sentinel)
+                if !output.isEmpty {
+                    let lower = output.lowercased()
+                    if lower.contains("error") || lower.contains("fatal") || lower.contains("denied") {
+                        process.terminate()
+                        throw SessionError.setupCommandFailed(command: cmd, output: output)
+                    }
+                }
             }
         }
 
@@ -211,4 +218,5 @@ public enum SessionError: Error, Equatable {
     case sessionNotFound(String)
     case blockedByReadonly(pattern: String, input: String)
     case processExited(code: Int32, stderr: String)
+    case setupCommandFailed(command: String, output: String)
 }

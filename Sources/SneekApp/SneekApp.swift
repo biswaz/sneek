@@ -5,6 +5,10 @@ import SneekLib
 struct SneekApp: App {
     @StateObject private var appState = AppState()
 
+    init() {
+        NSApplication.shared.setActivationPolicy(.regular)
+    }
+
     var body: some Scene {
         MenuBarExtra("Sneek", systemImage: "network.badge.shield.half.filled") {
             MenuBarView()

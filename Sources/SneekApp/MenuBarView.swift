@@ -59,6 +59,7 @@ struct MenuBarView: View {
                     appState.save(newCmd)
                     appState.selectedCommand = newCmd.name
                     openWindow(id: "main")
+                    NSApplication.shared.activate(ignoringOtherApps: true)
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
@@ -67,6 +68,7 @@ struct MenuBarView: View {
 
                 Button("Open Window ↗") {
                     openWindow(id: "main")
+                    NSApplication.shared.activate(ignoringOtherApps: true)
                 }
                 .buttonStyle(.plain)
                 .font(.caption)

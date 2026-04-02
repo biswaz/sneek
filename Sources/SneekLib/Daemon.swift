@@ -29,8 +29,13 @@ public actor Daemon {
         let tunnelMgr = tunnelManager
         let store = configStore
 
-        ipcServer.handler = { request in
+        ipcServer.handler = { [weak self] request in
             SneekLogger.debug("daemon: IPC request received: \(request.action)")
+            if request.action == .shutdown {
+                SneekLogger.info("daemon: shutdown requested via IPC")
+                Task { await self?.stop(); Foundation.exit(0) }
+                return .ok("shutting down")
+            }
             return await Self.handleRequest(request, configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr)
         }
 

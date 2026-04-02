@@ -47,6 +47,25 @@ struct Start: AsyncParsableCommand {
 
         let configStore = try ConfigStore(baseDir: defaultConfigDir())
         let daemon = Daemon(configStore: configStore)
+
+        // Trap SIGINT (Ctrl+C) and SIGTERM for clean shutdown
+        let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
+
+        let shutdownOnce: @Sendable () -> Void = {
+            Task {
+                print("\nsneekd: shutting down...")
+                await daemon.stop()
+                Foundation.exit(0)
+            }
+        }
+        sigintSource.setEventHandler(handler: shutdownOnce)
+        sigtermSource.setEventHandler(handler: shutdownOnce)
+        sigintSource.resume()
+        sigtermSource.resume()
+
         print("sneekd: starting daemon...")
         try await daemon.start()
     }

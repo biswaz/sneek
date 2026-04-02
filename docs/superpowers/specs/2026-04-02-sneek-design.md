@@ -252,6 +252,35 @@ sneekd install-mcp                   # Add sneek to Claude MCP config
 - **SSH tunnels:** spawned via `ssh -fN -L ...`, monitored by daemon
 - **Keychain:** Security framework (`SecItemCopyMatching`) for native access
 
+## Testing Strategy
+
+### Unit Tests (pure logic, no external dependencies)
+- Config JSON parsing and validation
+- `{{variable}}` template interpolation
+- Blocked pattern matching against input
+- Sentinel output parsing (detect end-of-output markers)
+- MCP JSON-RPC message serialization/deserialization
+- Command config field defaults and merging
+
+### Integration Tests (local setup, real processes)
+- **Session manager** — spawn a real `cat` or `bc` process, verify stdin/stdout/sentinel flow, idle timeout reaping
+- **Secret resolver** — test Keychain via a test entry (`security add-generic-password` in test setup, clean up in teardown). 1Password/Bitwarden stubbed behind `SecretProvider` protocol.
+- **Tunnel manager** — test against `localhost` SSH (`ssh localhost -L ...`). Verify tunnel comes up, health check passes, auto-reconnect on kill.
+- **MCP protocol** — pipe stdin/stdout to `sneekd mcp-serve`, send JSON-RPC tool list and tool call messages, assert correct responses.
+- **IPC** — spin up daemon, connect via Unix socket, send status/tunnel/run commands, verify responses.
+- **Shell scripts** — generate scripts, execute them, verify they delegate to `sneekd run` correctly.
+
+### Protocol Abstractions (for testability)
+Key daemon components sit behind Swift `protocol`s:
+- `SecretProvider` — `resolve(key:) -> String`. Real: Keychain, 1Password, Bitwarden, Env. Test: in-memory dictionary.
+- `TunnelManager` — `ensureUp(tunnel:)`, `tearDown(tunnel:)`, `status(tunnel:)`. Real: SSH process. Test: mock that tracks state.
+- `SessionManager` — `send(input:to:) -> String`, `reap(name:)`. Real: subprocess. Test: `cat` process with echo sentinel.
+
+### Manual Testing (v1)
+- GUI interactions (SwiftUI UI tests are fragile — manual for v1)
+- Real remote SSH tunnels through bastion hosts
+- Real 1Password/Bitwarden CLI integration (requires auth sessions)
+
 ## Verification
 
 1. **Build and launch** — `sneekd start` runs without errors, creates socket file

@@ -206,6 +206,8 @@ public actor SessionManager {
             return "SELECT '__SNEEK_DONE__';"
         } else if lower.contains("redis") {
             return "ECHO __SNEEK_DONE__"
+        } else if lower.contains("cqlsh") {
+            return "SELECT (text)'__SNEEK_DONE__' FROM system.local;"
         }
         return "echo __SNEEK_DONE__"
     }

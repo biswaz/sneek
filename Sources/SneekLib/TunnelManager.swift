@@ -105,12 +105,23 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
 
         let process = try spawnSSH(tunnel: tunnel)
 
-        // Give ssh a moment to establish the forward, then health-check
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-
-        let healthy = TCPHealthCheck.check(port: tunnel.localPort)
+        // Poll for the port to become reachable — SSH may take a few seconds
+        // to complete key exchange and bind the local forward.
+        var healthy = false
+        for _ in 0..<10 {
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            if !process.isRunning {
+                let stderr = sshStderr(process)
+                SneekLogger.error("tunnel/\(name): ssh exited (\(process.terminationStatus)): \(stderr)")
+                break
+            }
+            if TCPHealthCheck.check(port: tunnel.localPort, timeout: 1.0) {
+                healthy = true
+                break
+            }
+        }
         if !healthy {
-            process.terminate()
+            if process.isRunning { process.terminate() }
             throw TunnelError.healthCheckFailed(port: tunnel.localPort)
         }
 
@@ -221,6 +232,7 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
         args.append("\(tunnel.user)@\(tunnel.host)")
 
         process.arguments = args
+        process.standardError = Pipe()
 
         do {
             try process.run()
@@ -229,5 +241,11 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
         }
 
         return process
+    }
+
+    private func sshStderr(_ process: Process) -> String {
+        guard let pipe = process.standardError as? Pipe else { return "(no stderr)" }
+        let data = pipe.fileHandleForReading.availableData
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "(unreadable)"
     }
 }

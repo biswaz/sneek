@@ -92,7 +92,7 @@ swift run Sneek          # Launch GUI (menubar + dock)
 
 **To install binaries:**
 ```bash
-swift build -c release && cp .build/release/sneekd /usr/local/bin/sneekd
+swift build -c release --product sneekd --product Sneek && cp .build/arm64-apple-macosx/release/sneekd /usr/local/bin/sneekd && codesign --force --sign - /usr/local/bin/sneekd
 ```
 
 ## Config
@@ -210,7 +210,12 @@ sneekd install-mcp                        # Add sneek to Claude MCP config
 
 ## MCP Integration
 
-One-time setup: `sneekd install-mcp` adds to `~/.claude/settings.json`:
+One-time setup via CLI:
+```bash
+claude mcp add sneek -- sneekd mcp-serve
+```
+
+Or programmatically: `sneekd install-mcp` adds to `~/.claude/settings.json`:
 ```json
 { "mcpServers": { "sneek": { "command": "sneekd", "args": ["mcp-serve"] } } }
 ```

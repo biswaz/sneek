@@ -175,7 +175,7 @@ public actor SessionManager {
 
                     // Check if sentinel output appeared
                     let lines = accumulated.components(separatedBy: "\n")
-                    if let idx = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == Self.sentinelOutput }) {
+                    if let idx = lines.lastIndex(where: { $0.contains(Self.sentinelOutput) }) {
                         let output = lines[..<idx].joined(separator: "\n")
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         continuation.resume(returning: output)
@@ -208,6 +208,8 @@ public actor SessionManager {
             return "ECHO __SNEEK_DONE__"
         } else if lower.contains("cqlsh") {
             return "SELECT (text)'__SNEEK_DONE__' FROM system.local;"
+        } else if lower.contains("mongosh") {
+            return #"print("__SNEEK_DONE__")"#
         }
         return "echo __SNEEK_DONE__"
     }

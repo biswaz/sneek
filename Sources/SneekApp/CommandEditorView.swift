@@ -55,6 +55,7 @@ struct SecretRow: Identifiable {
 enum KnownCommandType: String, CaseIterable {
     case postgres = "Postgres"
     case mysql = "MySQL"
+    case mongodb = "MongoDB"
     case redis = "Redis"
     case custom = "Custom"
 
@@ -62,6 +63,7 @@ enum KnownCommandType: String, CaseIterable {
         switch self {
         case .postgres: return "SET default_transaction_read_only = on;"
         case .mysql: return "SET SESSION TRANSACTION READ ONLY;"
+        case .mongodb: return ""
         case .redis: return ""
         case .custom: return ""
         }
@@ -70,6 +72,7 @@ enum KnownCommandType: String, CaseIterable {
     var defaultBlockedPatterns: String {
         switch self {
         case .postgres, .mysql: return "DROP, DELETE, UPDATE, INSERT, ALTER, TRUNCATE"
+        case .mongodb: return "dropDatabase, .drop(, deleteMany, deleteOne, updateMany, updateOne, insertOne, insertMany, replaceOne, remove(, bulkWrite"
         case .redis: return "DEL, FLUSHDB, FLUSHALL, SET, EXPIRE"
         case .custom: return ""
         }
@@ -79,6 +82,7 @@ enum KnownCommandType: String, CaseIterable {
         switch self {
         case .postgres: return #"\echo __SNEEK_DONE__"#
         case .mysql: return "SELECT '__SNEEK_DONE__';"
+        case .mongodb: return #"print("__SNEEK_DONE__")"#
         case .redis: return "ECHO __SNEEK_DONE__"
         case .custom: return "echo __SNEEK_DONE__"
         }

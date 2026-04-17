@@ -6,23 +6,59 @@ struct CommandEditorView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(appState.filteredCommands, selection: $appState.selectedCommand) { cmd in
-                Text(cmd.name)
-            }
-            .searchable(text: $appState.searchText, prompt: "Filter commands")
-            .toolbar {
-                Button {
-                    let newCmd = CommandConfig(
-                        name: "new-command-\(Int.random(in: 1000...9999))",
-                        description: "New command",
-                        mode: .oneshot,
-                        command: "echo hello"
+            VStack(spacing: 0) {
+                VStack(spacing: 8) {
+                    Button {
+                        let newCmd = CommandConfig(
+                            name: "new-command-\(Int.random(in: 1000...9999))",
+                            description: "New command",
+                            mode: .oneshot,
+                            command: "echo hello"
+                        )
+                        appState.save(newCmd)
+                        appState.selectedCommand = newCmd.name
+                    } label: {
+                        Label("New Command", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .help("Create a new command")
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Filter commands", text: $appState.searchText)
+                            .textFieldStyle(.plain)
+                        if !appState.searchText.isEmpty {
+                            Button {
+                                appState.searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .textBackgroundColor))
                     )
-                    appState.save(newCmd)
-                    appState.selectedCommand = newCmd.name
-                } label: {
-                    Image(systemName: "plus")
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    )
                 }
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+
+                List(appState.filteredCommands, selection: $appState.selectedCommand) { cmd in
+                    Text(cmd.name)
+                }
+                .listStyle(.sidebar)
             }
         } detail: {
             if let name = appState.selectedCommand,
@@ -123,6 +159,8 @@ struct CommandFormView: View {
     // Access control
     @State private var setupCommands: String
     @State private var blockedPatterns: String
+
+    @State private var justSaved: Bool = false
 
     private let originalName: String
 
@@ -287,19 +325,46 @@ struct CommandFormView: View {
                 Toggle("Expose via MCP", isOn: $mcpEnabled)
                 if mcpEnabled {
                     TextField("Tool Name", text: $mcpToolName)
-                    TextField("Tool Description", text: $mcpToolDescription)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Tool Description")
+                        TextEditor(text: $mcpToolDescription)
+                            .font(.body)
+                            .frame(minHeight: 120, maxHeight: 400)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                            )
+                        Text("Shown to Claude when it lists tools — detailed descriptions help the model pick the right tool.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .formStyle(.grouped)
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
-                Button("Delete", role: .destructive) {
+                Button(role: .destructive) {
                     appState.delete(originalName)
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
+                .help("Delete this command")
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { save() }
+                Button {
+                    save()
+                } label: {
+                    Label(justSaved ? "Saved" : "Save",
+                          systemImage: justSaved ? "checkmark.circle.fill" : "checkmark")
+                        .foregroundStyle(justSaved ? .green : .primary)
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: justSaved)
+                        .scaleEffect(justSaved ? 1.1 : 1.0)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.5), value: justSaved)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .help("Save changes (⌘S)")
             }
         }
     }
@@ -376,5 +441,11 @@ struct CommandFormView: View {
 
         appState.save(cmd)
         appState.selectedCommand = name
+
+        justSaved = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await MainActor.run { justSaved = false }
+        }
     }
 }

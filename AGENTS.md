@@ -161,12 +161,9 @@ The app shows in the Dock (`NSApplication.shared.setActivationPolicy(.regular)`)
 
 ## Backlog
 
-See [`TODO.md`](TODO.md) — 24 items across P0/P1/P2 + testing gaps. Key blockers:
-- No variables/secrets editor in GUI (must edit JSON directly)
-- Daemon foreground-only (no launchd auto-start)
-- MCP server doesn't share tunnels/sessions with daemon
-- Session mode can't run interactively
-- IPC buffer truncates large results (4096 bytes)
+See [`TODO.md`](TODO.md) for the full list across P0/P1/P2 + testing gaps. Remaining blockers:
+- Session mode can't run interactively (`sneekd run pg-prod` needs input; MCP is fine)
+- Config reload doesn't always pick up new files added to commands dir
 
 ## Testing
 

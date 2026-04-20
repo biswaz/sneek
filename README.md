@@ -1,18 +1,14 @@
 # Sneek
 
-macOS menubar app + CLI daemon for managing custom commands with secret resolution, SSH tunnels, and Claude Code MCP integration.
+I wanted Claude Code to query my production databases without pasting passwords into the chat. That turned out to be three problems stacked on top of each other:
 
-## Why
+1. **Secrets in plaintext.** Connection strings with embedded passwords end up in config files, shell history, env vars, or — worst of all — the conversation. None of those are places I want a long-lived prod password to live.
+2. **SSH tunnels that keep breaking.** Most of my databases sit behind a bastion. The tunnels die, get killed by network changes, or never came up in the first place. Every other "MCP for Postgres" solution assumed a direct connection.
+3. **The auto-tunnel script tax.** The fix for #2 is usually "write a wrapper script that brings the tunnel up, waits for it, then runs the command." I'd written that script three times for three different databases. Three different ways. None reusable.
 
-Managing connections to production infrastructure (databases, APIs, internal services) means juggling passwords, SSH keys, tunnel configs, and connection strings. They end up in plaintext config files, shell history, or environment variables.
+Sneek is what I wished existed. One config per command (`pg-prod`, `redis-prod`, whatever): the password is a reference to a Keychain / 1Password / Bitwarden entry, the SSH tunnel is described declaratively and the daemon keeps it alive, and the whole thing exposes itself to Claude Code as an MCP tool with a single setup line.
 
-Sneek keeps secrets out of config: define a command (like `pg-prod`) in the GUI, point it at a Keychain / 1Password / Bitwarden entry, and Sneek resolves the secret at runtime — never on disk, never in the command string. The same command becomes:
-
-- a one-tap entry in the menubar,
-- a generated shell script,
-- and an MCP tool that Claude Code can call directly.
-
-The original use case: give Claude Code access to a production Postgres without putting the password, host, or SSH tunnel options in the conversation or any file Claude can read.
+The same command also becomes a menubar entry I can click, and a shell script if I just want to use it from the terminal. But MCP was the goal.
 
 ## Install
 

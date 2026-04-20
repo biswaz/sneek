@@ -10,7 +10,7 @@ Prioritized by impact. Items marked **(spec)** were in the design spec. Items ma
 4. ~~Config reload not picking up new files reliably.~~ **DONE** — `startWatching()` combines a DispatchSource on the commands dir with a 3-second poll that hashes filenames + mtimes (commit 41c8bed). New files and edits both trigger `reload()` within 3s.
 5. **Session mode requires input on every call.** **(discovered)** `Daemon.swift:196` returns error if `input` is nil for session mode. Can't do `sneekd run pg-prod` interactively. Works fine for MCP (Claude always sends input).
 6. ~~IPC buffer is 4096 bytes.~~ **DONE** — Buffer 65KB, delimiter check on accumulated data.
-7. **Stale session after tunnel reconnect.** **(discovered)** When the tunnel monitor respawns ssh, existing persistent sessions (e.g. psql) are still bound to the dead forward and exit with EOF on the next command. Daemon's error path on session death also produces a truncated IPC reply (client sees "Unexpected end of file" JSON decode error). Fix: when a tunnel reconnects, tear down sessions depending on it so the next call re-establishes; and ensure `Daemon` always writes a complete IPCResponse on session error.
+7. ~~Stale session after tunnel reconnect.~~ **DONE** — `TunnelManager` fires an `onReconnect` callback; `Daemon` wires it to reap the session so the next call re-establishes. `SessionManager.send` also evicts a dead cached session and reaps on any error. Daemon ignores SIGPIPE so broken-pipe writes don't kill it.
 
 ## P1 — Important for reliability
 

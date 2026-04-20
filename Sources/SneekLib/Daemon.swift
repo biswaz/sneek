@@ -70,6 +70,13 @@ public actor Daemon {
             }
         }
 
+        // When a tunnel is respawned by the monitor, any session bound to the old
+        // forward is now talking to a dead socket — reap it so the next call re-establishes.
+        await tunnelManager.setOnReconnect { [sessionMgr] name in
+            await sessionMgr.reap(name)
+            SneekLogger.info("session/\(name): reaped after tunnel reconnect")
+        }
+
         await tunnelManager.startMonitoring()
         await ipcServer.acceptLoop()
     }

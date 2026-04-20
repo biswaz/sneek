@@ -37,6 +37,13 @@ public actor SessionManager {
             }
         }
 
+        // Evict a session whose process has died (e.g. after its tunnel reconnected
+        // and severed the underlying connection) so we start fresh below.
+        if let existing = sessions[name], !existing.process.isRunning {
+            SneekLogger.info("session/\(name): previous process is dead, restarting")
+            reap(name)
+        }
+
         if sessions[name] == nil {
             try await startSession(name: name, command: resolvedCommand, config: config)
         }
@@ -46,19 +53,20 @@ public actor SessionManager {
         }
 
         let sentinel = session.sentinel
-
-        // Write input + sentinel to stdin
         let payload = input + "\n" + sentinel + "\n"
-        session.stdin.write(Data(payload.utf8))
 
-        // Read until sentinel appears in output
-        let output = try await readUntilSentinel(from: session.stdout, sentinel: sentinel)
-
-        session.lastUsed = Date()
-        sessions[name] = session
-        resetIdleTimer(name: name, timeout: config.idleTimeout ?? 300)
-
-        return output
+        do {
+            try session.stdin.write(contentsOf: Data(payload.utf8))
+            let output = try await readUntilSentinel(from: session.stdout, sentinel: sentinel)
+            session.lastUsed = Date()
+            sessions[name] = session
+            resetIdleTimer(name: name, timeout: config.idleTimeout ?? 300)
+            return output
+        } catch {
+            // Session is in an unknown state — reap so the next call re-establishes.
+            reap(name)
+            throw error
+        }
     }
 
     // MARK: - Oneshot mode

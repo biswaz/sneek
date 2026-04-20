@@ -48,6 +48,10 @@ struct Start: AsyncParsableCommand {
         let configStore = try ConfigStore(baseDir: defaultConfigDir())
         let daemon = Daemon(configStore: configStore)
 
+        // Ignore SIGPIPE: writes to a broken pipe (e.g. a dead session's stdin
+        // after its ssh tunnel reconnected) should return EPIPE, not kill the daemon.
+        signal(SIGPIPE, SIG_IGN)
+
         // Trap SIGINT (Ctrl+C) and SIGTERM for clean shutdown
         let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)

@@ -59,8 +59,16 @@ public enum TunnelError: Error {
 public actor SSHTunnelManager: TunnelManagerProtocol {
     private var tunnels: [String: TunnelState] = [:]
     private var monitorTask: Task<Void, Never>?
+    private var onReconnect: (@Sendable (String) async -> Void)?
 
     public init() {}
+
+    /// Install a callback invoked after a tunnel is successfully respawned by the
+    /// health monitor. Use this to tear down consumers whose state is tied to the
+    /// old process (e.g. persistent sessions bound to the dead forward).
+    public func setOnReconnect(_ handler: @escaping @Sendable (String) async -> Void) {
+        self.onReconnect = handler
+    }
 
     /// Kill stale SSH tunnel processes on a port — only kills ssh processes
     /// with our specific -L forward pattern, not arbitrary processes.
@@ -182,6 +190,9 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
                 if await waitForHealthy(name: name, process: newProcess, port: state.config.localPort) {
                     tunnels[name] = TunnelState(process: newProcess, status: .up, config: state.config, reconnectDelay: 1.0)
                     SneekLogger.info("tunnel/\(name): reconnected successfully")
+                    if let handler = onReconnect {
+                        await handler(name)
+                    }
                 } else {
                     if newProcess.isRunning { newProcess.terminate() }
                     let nextDelay = min(delay * 2, 30.0)

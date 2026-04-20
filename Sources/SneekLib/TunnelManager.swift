@@ -105,22 +105,7 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
 
         let process = try spawnSSH(tunnel: tunnel)
 
-        // Poll for the port to become reachable — SSH may take a few seconds
-        // to complete key exchange and bind the local forward.
-        var healthy = false
-        for _ in 0..<10 {
-            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            if !process.isRunning {
-                let stderr = sshStderr(process)
-                SneekLogger.error("tunnel/\(name): ssh exited (\(process.terminationStatus)): \(stderr)")
-                break
-            }
-            if TCPHealthCheck.check(port: tunnel.localPort, timeout: 1.0) {
-                healthy = true
-                break
-            }
-        }
-        if !healthy {
+        if !(await waitForHealthy(name: name, process: process, port: tunnel.localPort)) {
             if process.isRunning { process.terminate() }
             throw TunnelError.healthCheckFailed(port: tunnel.localPort)
         }
@@ -194,15 +179,13 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
 
             do {
                 let newProcess = try spawnSSH(tunnel: state.config)
-                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s for ssh to bind
-
-                if TCPHealthCheck.check(port: state.config.localPort) {
+                if await waitForHealthy(name: name, process: newProcess, port: state.config.localPort) {
                     tunnels[name] = TunnelState(process: newProcess, status: .up, config: state.config, reconnectDelay: 1.0)
                     SneekLogger.info("tunnel/\(name): reconnected successfully")
                 } else {
-                    newProcess.terminate()
+                    if newProcess.isRunning { newProcess.terminate() }
                     let nextDelay = min(delay * 2, 30.0)
-                    tunnels[name] = TunnelState(process: state.process, status: .down, config: state.config, reconnectDelay: nextDelay)
+                    tunnels[name] = TunnelState(process: newProcess, status: .down, config: state.config, reconnectDelay: nextDelay)
                     SneekLogger.error("tunnel/\(name): reconnect failed, next retry in \(nextDelay)s")
                 }
             } catch {
@@ -214,6 +197,24 @@ public actor SSHTunnelManager: TunnelManagerProtocol {
     }
 
     // MARK: - Private
+
+    /// Poll up to `maxAttempts` × 0.5s for the local forward port to become reachable.
+    /// SSH key exchange through a bastion can easily take 2–3s — a single short wait
+    /// kills the ssh process before it has a chance to bind.
+    private func waitForHealthy(name: String, process: Process, port: Int, maxAttempts: Int = 10) async -> Bool {
+        for _ in 0..<maxAttempts {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if !process.isRunning {
+                let stderr = sshStderr(process)
+                SneekLogger.error("tunnel/\(name): ssh exited (\(process.terminationStatus)): \(stderr)")
+                return false
+            }
+            if TCPHealthCheck.check(port: port, timeout: 1.0) {
+                return true
+            }
+        }
+        return false
+    }
 
     private func spawnSSH(tunnel: TunnelConfig) throws -> Process {
         let process = Process()

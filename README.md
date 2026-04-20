@@ -10,6 +10,15 @@ Sneek is what I wished existed. One config per command (`pg-prod`, `redis-prod`,
 
 The same command also becomes a menubar entry I can click, and a shell script if I just want to use it from the terminal. But MCP was the goal.
 
+<p align="center">
+  <img src="docs/images/menubar.png" alt="Sneek menubar popover with command list and status pill" width="420">
+</p>
+
+<p align="center">
+  <img src="docs/images/editor-general.png" alt="Sneek command editor — general, command template, variables, and secrets" width="420">
+  <img src="docs/images/editor-access.png" alt="Sneek command editor — access control, SSH tunnel, and MCP integration" width="420">
+</p>
+
 ## Install
 
 Requires macOS, Swift 6, and full Xcode (not just CommandLineTools).

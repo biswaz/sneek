@@ -161,8 +161,7 @@ The app shows in the Dock (`NSApplication.shared.setActivationPolicy(.regular)`)
 
 ## Backlog
 
-See [`TODO.md`](TODO.md) for the full list across P0/P1/P2 + testing gaps. Remaining P0:
-- Session mode can't run interactively (`sneekd run pg-prod` needs input; MCP is fine)
+See [`TODO.md`](TODO.md).
 
 ## Testing
 

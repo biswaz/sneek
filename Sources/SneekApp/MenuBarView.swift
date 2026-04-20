@@ -31,7 +31,14 @@ struct MenuBarView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(appState.filteredCommands) { cmd in
-                        CommandRow(command: cmd, tunnelStatus: appState.tunnelStatuses[cmd.name])
+                        Button {
+                            appState.selectedCommand = cmd.name
+                            openWindow(id: "main")
+                            NSApplication.shared.activate(ignoringOtherApps: true)
+                        } label: {
+                            CommandRow(command: cmd, tunnelStatus: appState.tunnelStatuses[cmd.name])
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 8)

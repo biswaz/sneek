@@ -50,7 +50,7 @@ struct MenuBarView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
             }
-            .frame(maxHeight: 300)
+            .frame(height: min(CGFloat(max(appState.filteredCommands.count, 1)) * 52 + 8, 400))
 
             Divider()
 

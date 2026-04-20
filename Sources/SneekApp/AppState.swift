@@ -1,11 +1,35 @@
 import SwiftUI
 import SneekLib
 
+enum AppLog {
+    static let url: URL = {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/sneek/logs")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("sneek-app.log")
+    }()
+
+    static func log(_ message: String) {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(ts)] \(message)\n"
+        let data = Data(line.utf8)
+        FileHandle.standardError.write(data)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
+        }
+    }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var commands: [CommandConfig] = []
     @Published var selectedCommand: String?
     @Published var daemonRunning = false
+    @Published var daemonError: String?
     @Published var tunnelStatuses: [String: String] = [:]
     @Published var searchText = ""
     @Published var showFirstRunAlert = false
@@ -25,6 +49,9 @@ final class AppState: ObservableObject {
         loadConfig()
         refreshStatus()
         checkFirstRun()
+        if !daemonRunning {
+            startDaemon()
+        }
         // Poll daemon status every 5 seconds
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
@@ -39,7 +66,7 @@ final class AppState: ObservableObject {
             self.configStore = store
             self.commands = Array(store.commands.values)
         } catch {
-            print("Failed to load config: \(error)")
+            AppLog.log("loadConfig failed: \(error)")
         }
     }
 
@@ -48,7 +75,7 @@ final class AppState: ObservableObject {
             try configStore?.save(command)
             loadConfig()
         } catch {
-            print("Failed to save: \(error)")
+            AppLog.log("save failed: \(error)")
         }
     }
 
@@ -58,7 +85,7 @@ final class AppState: ObservableObject {
             if selectedCommand == name { selectedCommand = nil }
             loadConfig()
         } catch {
-            print("Failed to delete: \(error)")
+            AppLog.log("delete failed: \(error)")
         }
     }
 
@@ -69,6 +96,9 @@ final class AppState: ObservableObject {
         do {
             let response = try client.send(IPCRequest(action: .status))
             daemonRunning = response.success
+            if daemonRunning {
+                daemonError = nil
+            }
             if let output = response.output {
                 var statuses: [String: String] = [:]
                 for line in output.split(separator: "\n") {
@@ -89,22 +119,77 @@ final class AppState: ObservableObject {
     }
 
     func startDaemon() {
+        guard let path = locateSneekd() else {
+            let msg = "sneekd binary not found. Build with: swift build"
+            daemonError = msg
+            AppLog.log("sneekd not found. Searched: \(sneekdCandidates().joined(separator: ", "))")
+            return
+        }
+        AppLog.log("sneekd resolved at: \(path)")
+        AppLog.log("starting daemon: \(path)")
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["sneekd", "start"]
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["start"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        do {
+            try process.run()
+            daemonError = nil
+        } catch {
+            let msg = "Failed to start sneekd: \(error.localizedDescription)"
+            daemonError = msg
+            AppLog.log("failed to start daemon: \(error)")
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.refreshStatus()
         }
     }
 
     func stopDaemon() {
+        AppLog.log("stopping daemon")
         let client = IPCClient(socketPath: socketPath)
         _ = try? client.send(IPCRequest(action: .shutdown))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.refreshStatus()
+        }
+    }
+
+    // MARK: - sneekd binary resolution
+
+    private func sneekdCandidates() -> [String] {
+        var paths: [String] = []
+        if let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            paths.append(exeDir.appendingPathComponent("sneekd").path)
+        }
+        paths.append("/usr/local/bin/sneekd")
+        paths.append("/opt/homebrew/bin/sneekd")
+        return paths
+    }
+
+    private func locateSneekd() -> String? {
+        for path in sneekdCandidates() where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return whichSneekd()
+    }
+
+    private func whichSneekd() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = ["sneekd"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (path?.isEmpty == false) ? path : nil
+        } catch {
+            return nil
         }
     }
 
@@ -125,7 +210,12 @@ final class AppState: ObservableObject {
     func installMCP() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let settingsPath = home.appendingPathComponent(".claude/settings.json").path
-        try? ScriptGenerator.installMCP(sneekdPath: "/usr/local/bin/sneekd", settingsPath: settingsPath)
+        do {
+            try ScriptGenerator.installMCP(sneekdPath: "/usr/local/bin/sneekd", settingsPath: settingsPath)
+            AppLog.log("installed MCP entry into \(settingsPath)")
+        } catch {
+            AppLog.log("installMCP failed: \(error)")
+        }
         showFirstRunAlert = false
     }
 

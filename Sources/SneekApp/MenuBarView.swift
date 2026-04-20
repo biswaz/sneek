@@ -11,21 +11,8 @@ struct MenuBarView: View {
             HStack {
                 Text("Sneek").font(.headline)
                 Spacer()
-                Button {
-                    if appState.daemonRunning { appState.stopDaemon() }
-                    else { appState.startDaemon() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(appState.daemonRunning ? .green : .red)
-                            .frame(width: 8, height: 8)
-                        Text(appState.daemonRunning ? "running" : "stopped")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .help(appState.daemonRunning ? "Click to stop daemon" : "Click to start daemon")
+                DaemonToggle()
+                    .environmentObject(appState)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -91,6 +78,62 @@ struct MenuBarView: View {
         } message: {
             Text("Sneek can integrate with Claude Code so your commands appear as MCP tools. Set it up now?")
         }
+    }
+}
+
+struct DaemonToggle: View {
+    @EnvironmentObject var appState: AppState
+
+    private enum DaemonState {
+        case running, stopped, error
+    }
+
+    private var state: DaemonState {
+        if appState.daemonError != nil { return .error }
+        return appState.daemonRunning ? .running : .stopped
+    }
+
+    private var color: Color {
+        switch state {
+        case .running: return .green
+        case .stopped: return .secondary
+        case .error:   return .orange
+        }
+    }
+
+    private var label: String {
+        switch state {
+        case .running: return "Running"
+        case .stopped: return "Stopped"
+        case .error:   return "Error"
+        }
+    }
+
+    private var tooltip: String {
+        switch state {
+        case .running: return "Click to stop daemon"
+        case .stopped: return "Click to start daemon"
+        case .error:   return appState.daemonError ?? "Daemon error"
+        }
+    }
+
+    var body: some View {
+        Button {
+            if appState.daemonRunning { appState.stopDaemon() }
+            else { appState.startDaemon() }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text(label).font(.caption).fontWeight(.medium).foregroundStyle(color)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(color.opacity(0.15)))
+            .overlay(Capsule().strokeBorder(color.opacity(0.4), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
     }
 }
 

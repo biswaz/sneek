@@ -84,9 +84,13 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 swift build              # Build all 3 targets (sneekd, Sneek, SneekTests)
 swift run SneekTests     # Run tests (custom runner — NOT swift test)
-swift run sneekd --help  # CLI help
-swift run Sneek          # Launch GUI (menubar + dock)
+swift run Sneek          # Launch GUI — auto-starts the daemon (one command, dev + prod)
+swift run sneekd --help  # CLI help (daemon ops only — GUI handles start/stop)
 ```
+
+The GUI auto-spawns `sneekd` on launch if one isn't already running. Binary lookup order: sibling to the running `Sneek` executable (covers `.build/.../sneekd` in dev and `Sneek.app/Contents/MacOS/sneekd` if bundled) → `/usr/local/bin/sneekd` → `/opt/homebrew/bin/sneekd` → `PATH`. App logs go to `~/.config/sneek/logs/sneek-app.log` (and stderr in dev) — `tail -f` to debug spawn issues. Daemon logs are separate at `~/.config/sneek/logs/sneekd.log`.
+
+Note: in dev, `Ctrl-C`'ing `swift run Sneek` also kills the spawned daemon (shared process group). In prod, Cmd-Q does not — the daemon survives and continues serving Claude Code.
 
 **Why not `swift test`?** The project uses a custom executable test runner (`SneekTests` target) instead of XCTest because the CommandLineTools-only Swift toolchain doesn't include XCTest or Swift Testing. The test target is an `.executableTarget` in Package.swift, not a `.testTarget`. Tests use `check()` / `test()` / `report()` from `TestRunner.swift`.
 
@@ -139,7 +143,7 @@ Custom sentinel via the `sentinel` field in command config.
 `sneekd mcp-serve` is a single stdio JSON-RPC process. Claude's config points to it once. All MCP-enabled commands appear as tools. Per-project scoping via `--tags` or `--commands` flags.
 
 ### GUI is a config editor only
-The SwiftUI app (menubar + detachable window) reads/writes JSON config files. It does not run commands, manage tunnels, or serve MCP. All runtime is in the daemon.
+The SwiftUI app (menubar + detachable window) reads/writes JSON config files. It does not run commands, manage tunnels, or serve MCP. All runtime is in the daemon. The app auto-spawns the daemon on launch (see Build & Test for the binary lookup order) and exposes a start/stop toggle in the menubar; the daemon survives the app quitting in prod.
 
 The app shows in the Dock (`NSApplication.shared.setActivationPolicy(.regular)`) and activates properly when "Open Window" is clicked (`NSApplication.shared.activate(ignoringOtherApps: true)`).
 

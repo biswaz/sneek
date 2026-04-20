@@ -3,6 +3,8 @@ import SneekLib
 
 struct CommandEditorView: View {
     @EnvironmentObject var appState: AppState
+    @State private var pendingClone: String?
+    @State private var pendingDelete: String?
 
     var body: some View {
         NavigationSplitView {
@@ -57,8 +59,40 @@ struct CommandEditorView: View {
 
                 List(appState.filteredCommands, selection: $appState.selectedCommand) { cmd in
                     Text(cmd.name)
+                        .contextMenu {
+                            Button("Clone…") {
+                                pendingClone = cmd.name
+                            }
+                            Button("Delete…", role: .destructive) {
+                                pendingDelete = cmd.name
+                            }
+                        }
                 }
                 .listStyle(.sidebar)
+            }
+            .confirmationDialog(
+                "Clone \"\(pendingClone ?? "")\"?",
+                isPresented: Binding(
+                    get: { pendingClone != nil },
+                    set: { if !$0 { pendingClone = nil } }
+                ),
+                presenting: pendingClone
+            ) { name in
+                Button("Clone") { appState.clone(name) }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog(
+                "Delete \"\(pendingDelete ?? "")\"?",
+                isPresented: Binding(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                presenting: pendingDelete
+            ) { name in
+                Button("Delete", role: .destructive) { appState.delete(name) }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This cannot be undone.")
             }
         } detail: {
             if let name = appState.selectedCommand,
@@ -161,6 +195,7 @@ struct CommandFormView: View {
     @State private var blockedPatterns: String
 
     @State private var justSaved: Bool = false
+    @State private var showDeleteConfirm: Bool = false
 
     private let originalName: String
 
@@ -342,14 +377,24 @@ struct CommandFormView: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Delete \"\(originalName)\"?",
+            isPresented: $showDeleteConfirm
+        ) {
+            Button("Delete", role: .destructive) { appState.delete(originalName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
+        }
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
                 Button(role: .destructive) {
-                    appState.delete(originalName)
+                    showDeleteConfirm = true
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
-                .help("Delete this command")
+                .keyboardShortcut(.delete, modifiers: .command)
+                .help("Delete this command (⌘⌫)")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {

@@ -89,6 +89,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    func clone(_ name: String) {
+        guard let original = commands.first(where: { $0.name == name }) else { return }
+        let existing = Set(commands.map { $0.name })
+        var candidate = "\(name)-copy"
+        var n = 2
+        while existing.contains(candidate) {
+            candidate = "\(name)-copy-\(n)"
+            n += 1
+        }
+        var copy = original
+        copy.name = candidate
+        save(copy)
+        selectedCommand = candidate
+    }
+
     // MARK: - Daemon
 
     func refreshStatus() {

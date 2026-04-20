@@ -143,6 +143,11 @@ The SwiftUI app (menubar + detachable window) reads/writes JSON config files. It
 
 The app shows in the Dock (`NSApplication.shared.setActivationPolicy(.regular)`) and activates properly when "Open Window" is clicked (`NSApplication.shared.activate(ignoringOtherApps: true)`).
 
+### AppState is the shared source of truth for both GUI views
+`SneekApp` owns a single `@StateObject AppState`, passed via `.environmentObject` to both `MenuBarView` (menubar popover) and `CommandEditorView` (main window). Both views read `appState.filteredCommands` — there is no second AppState instance. If a GUI bug shows different data in the two views, the cause is rendering/layout, not state divergence.
+
+AppState is a **snapshot cache**, not live state: `loadConfig()` runs only on app-activation events (`MenuBarView.onAppear`, window `didBecomeActiveNotification`). It constructs a fresh `ConfigStore` each call and does not wire up `onChange` or call `startWatching()`. External JSON edits won't appear in the GUI until the app is re-activated. The daemon keeps its own watched `ConfigStore` — a separate cache.
+
 ## What Works
 
 - Config CRUD (create, save, delete, reload with file watching)

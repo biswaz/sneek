@@ -461,8 +461,15 @@ struct CommandFormView: View {
             toolDescription: mcpToolDescription
         ) : nil
 
-        let setupCmds = setupCommands.isEmpty ? nil : setupCommands.split(separator: "\n").map(String.init)
-        let blocked = blockedPatterns.isEmpty ? nil : blockedPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Setup commands and blocked patterns are tied to the read-only toggle in the UI.
+        // Persisting them when readonly is off would leave the database-level read-only
+        // SET still firing at session start.
+        let setupCmds: [String]? = (readonly && !setupCommands.isEmpty)
+            ? setupCommands.split(separator: "\n").map(String.init)
+            : nil
+        let blocked: [String]? = (readonly && !blockedPatterns.isEmpty)
+            ? blockedPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            : nil
 
         let cmd = CommandConfig(
             name: name,

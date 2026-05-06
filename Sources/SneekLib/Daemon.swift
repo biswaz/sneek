@@ -5,6 +5,7 @@ public actor Daemon {
     public let sessionManager: SessionManager
     public let tunnelManager: SSHTunnelManager
     private let ipcServer: IPCServer
+    private var previousCommands: [String: CommandConfig] = [:]
 
     public init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -24,27 +25,12 @@ public actor Daemon {
         SneekLogger.info("daemon: starting")
         try ipcServer.start()
 
-        // Watch for config changes — start tunnels for newly enabled commands
+        previousCommands = configStore.commands
+
+        // Watch for config changes — start tunnels for newly enabled commands,
+        // reap sessions when their runtime-affecting config changed.
         configStore.onChange = { [weak self] in
-            guard let self else { return }
-            Task {
-                for (name, cmd) in self.configStore.commands {
-                    if cmd.enabled == false {
-                        // Tear down tunnel and reap session for disabled commands
-                        try? await self.tunnelManager.tearDown(name)
-                        await self.sessionManager.reap(name)
-                        continue
-                    }
-                    if let tunnel = cmd.tunnel, tunnel.enabled != false {
-                        if tunnel.autoConnect == true {
-                            try? await self.tunnelManager.ensureUp(name, tunnel: tunnel)
-                        }
-                    } else {
-                        // Tunnel config removed or disabled — tear down if running
-                        try? await self.tunnelManager.tearDown(name)
-                    }
-                }
-            }
+            Task { await self?.handleConfigChange() }
         }
         configStore.startWatching()
 
@@ -88,6 +74,56 @@ public actor Daemon {
         await tunnelManager.stopMonitoring()
         await sessionManager.reapAll()
         await tunnelManager.tearDownAll()
+    }
+
+    // MARK: - Config Change Handling
+
+    private func handleConfigChange() async {
+        let current = configStore.commands
+        let previous = previousCommands
+        previousCommands = current
+
+        for (name, cmd) in current {
+            if cmd.enabled == false {
+                try? await tunnelManager.tearDown(name)
+                await sessionManager.reap(name)
+                continue
+            }
+
+            // If a live session was started under a previous config whose runtime
+            // fields differ (e.g. setup_commands cleared, password rotated), reap
+            // it so the next call re-establishes against the new config.
+            if let prev = previous[name], Self.sessionConfigChanged(prev, cmd) {
+                await sessionManager.reap(name)
+                SneekLogger.info("session/\(name): reaped after config change")
+            }
+
+            if let tunnel = cmd.tunnel, tunnel.enabled != false {
+                if tunnel.autoConnect == true {
+                    try? await tunnelManager.ensureUp(name, tunnel: tunnel)
+                }
+            } else {
+                try? await tunnelManager.tearDown(name)
+            }
+        }
+
+        // Commands removed from disk — drop their tunnel and session.
+        for name in previous.keys where current[name] == nil {
+            try? await tunnelManager.tearDown(name)
+            await sessionManager.reap(name)
+        }
+    }
+
+    /// True when `b` changes any field that affects an already-running session,
+    /// such that the session should be reaped and re-established.
+    static func sessionConfigChanged(_ a: CommandConfig, _ b: CommandConfig) -> Bool {
+        a.command != b.command
+            || a.setupCommands != b.setupCommands
+            || a.sentinel != b.sentinel
+            || a.secrets != b.secrets
+            || a.variables != b.variables
+            || a.mode != b.mode
+            || a.tunnel != b.tunnel
     }
 
     // MARK: - Request Handling

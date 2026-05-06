@@ -8,6 +8,7 @@ struct TestMain {
         runTemplateEngineTests()
         runTunnelManagerTests()
         runSessionManagerTests()
+        runDaemonTests()
         runMCPServerTests()
         runScriptGeneratorTests()
         runIntegrationTests()

@@ -78,9 +78,10 @@ docs/
 ## Build & Test
 
 ```bash
-# REQUIRED: Xcode must be installed (not just CommandLineTools)
-# SwiftUI and the test runner need the full Xcode SDK
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+# Xcode is NOT required — CommandLineTools alone is enough.
+# Recent CLT SDKs (Swift 6.3+) include SwiftUI, and the custom test runner
+# avoids XCTest (which CLT still lacks). Verified: full build + all tests
+# pass with only /Library/Developer/CommandLineTools.
 
 swift build              # Build all 3 targets (sneekd, Sneek, SneekTests)
 swift run SneekTests     # Run tests (custom runner — NOT swift test)

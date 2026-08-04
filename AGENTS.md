@@ -95,10 +95,18 @@ Note: in dev, `Ctrl-C`'ing `swift run Sneek` also kills the spawned daemon (shar
 
 **Why not `swift test`?** The project uses a custom executable test runner (`SneekTests` target) instead of XCTest because the CommandLineTools-only Swift toolchain doesn't include XCTest or Swift Testing. The test target is an `.executableTarget` in Package.swift, not a `.testTarget`. Tests use `check()` / `test()` / `report()` from `TestRunner.swift`.
 
-**To install binaries:**
+**To install binaries** (the production `sneekd` lives at `/opt/homebrew/bin/sneekd`):
 ```bash
-swift build -c release --product sneekd --product Sneek && cp .build/arm64-apple-macosx/release/sneekd /usr/local/bin/sneekd && codesign --force --sign - /usr/local/bin/sneekd
+swift build -c release --product sneekd && cp .build/arm64-apple-macosx/release/sneekd /opt/homebrew/bin/sneekd && codesign --force --sign - /opt/homebrew/bin/sneekd && launchctl kickstart -k gui/$(id -u)/com.sneek.daemon
 ```
+
+A stale installed binary fails subtly — e.g. an old default-sentinel table makes every mongosh session hang forever while the query itself succeeds (seen 30 Jul 2026). After any `swift build -c release`, always reinstall AND kickstart; the running daemon never picks up a new binary on its own.
+
+### Daemon lifecycle — launchd owns sneekd
+
+The daemon is managed by LaunchAgent `com.sneek.daemon` (`~/Library/LaunchAgents/com.sneek.daemon.plist`) with `KeepAlive: true` and `RunAtLoad: true`, running `/opt/homebrew/bin/sneekd start`. It captures stdout/stderr to `~/.config/sneek/logs/sneekd.log` / `sneekd.err` and sets `PATH` explicitly (secrets CLIs and DB clients must be reachable from that PATH, not your shell's).
+
+**Restart with `launchctl kickstart -k gui/$(id -u)/com.sneek.daemon` — never `kill` + manual `sneekd start`.** Killing the daemon makes launchd respawn it instantly, and a manually started daemon then races it: each new daemon binds the Unix socket by unlinking the previous socket file, and a dying daemon's shutdown cleanup unlinks the path even when a *newer* daemon owns it. The end state is a live daemon nobody can reach — `sneekd status` and MCP fail with `connect() failed: No such file or directory` while `pgrep sneekd` shows a running process. If you see that state, one kickstart fixes it.
 
 ## Config
 

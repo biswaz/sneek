@@ -81,6 +81,26 @@ func runSessionManagerTests() {
         check(caught, "case-insensitive block")
     }
 
+    test("Session preserves multibyte output split across pipe chunks") {
+        // >64KB of 3-byte runes guarantees pipe reads that split characters
+        // mid-rune; dropped chunks show up as missing lines.
+        let result: String = try runBlocking {
+            let manager = SessionManager()
+            let config = CommandConfig(
+                name: "utf8-chunks",
+                description: "test",
+                mode: .session,
+                command: "bash"
+            )
+            let input = "for i in $(seq 1 20000); do echo '日本語テキストです'; done"
+            let out = try await manager.send(input: input, to: "utf8-chunks", config: config, resolvedCommand: "bash")
+            await manager.reapAll()
+            return out
+        }
+        let count = result.components(separatedBy: "\n").filter { $0.contains("日本語テキストです") }.count
+        check(count == 20000, "expected 20000 multibyte lines, got \(count)")
+    }
+
     test("Active sessions starts empty") {
         let names: [String] = try runBlocking {
             let manager = SessionManager()

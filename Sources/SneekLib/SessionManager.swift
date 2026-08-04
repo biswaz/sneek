@@ -170,7 +170,7 @@ public actor SessionManager {
     private func readUntilSentinel(from handle: FileHandle, sentinel: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
-                var accumulated = ""
+                var accumulated = Data()
 
                 while true {
                     let data = handle.availableData
@@ -178,11 +178,16 @@ public actor SessionManager {
                         continuation.resume(throwing: SessionError.processExited(code: -1, stderr: "EOF"))
                         return
                     }
-                    guard let chunk = String(data: data, encoding: .utf8) else { continue }
-                    accumulated += chunk
+                    accumulated.append(data)
+
+                    // Pipe reads split multi-byte characters at arbitrary byte
+                    // offsets, so decode the whole buffer lossily every pass —
+                    // strict per-chunk decoding would drop the chunk (and hang
+                    // forever if the dropped chunk contained the sentinel).
+                    let text = String(decoding: accumulated, as: UTF8.self)
 
                     // Check if sentinel output appeared
-                    let lines = accumulated.components(separatedBy: "\n")
+                    let lines = text.components(separatedBy: "\n")
                     if let idx = lines.lastIndex(where: { $0.contains(Self.sentinelOutput) }) {
                         let output = lines[..<idx].joined(separator: "\n")
                             .trimmingCharacters(in: .whitespacesAndNewlines)

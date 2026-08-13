@@ -3,10 +3,10 @@
 I wanted Claude Code to query my production databases without pasting passwords into the chat. That turned out to be three problems stacked on top of each other:
 
 1. **Secrets in plaintext.** Connection strings with embedded passwords end up in config files, shell history, env vars, or — worst of all — the conversation. None of those are places I want a long-lived prod password to live.
-2. **SSH tunnels that keep breaking.** Most of my databases sit behind a bastion. The tunnels die, get killed by network changes, or never came up in the first place. Every other "MCP for Postgres" solution assumed a direct connection.
+2. **Tunnels that keep breaking.** Most of my databases sit behind a bastion or inside a Kubernetes cluster. The SSH tunnels and `kubectl port-forward`s die, get killed by network changes, or never came up in the first place. Every other "MCP for Postgres" solution assumed a direct connection.
 3. **The auto-tunnel script tax.** The fix for #2 is usually "write a wrapper script that brings the tunnel up, waits for it, then runs the command." I'd written that script three times for three different databases. Three different ways. None reusable.
 
-Sneek is what I wished existed. One config per command (`pg-prod`, `redis-prod`, whatever): the password is a reference to a Keychain / 1Password / Bitwarden entry, the SSH tunnel is described declaratively and the daemon keeps it alive, and the whole thing exposes itself to Claude Code as an MCP tool with a single setup line.
+Sneek is what I wished existed. One config per command (`pg-prod`, `redis-prod`, whatever): the password is a reference to a Keychain / 1Password / Bitwarden entry, the tunnel — SSH through a bastion or kubectl port-forward into a cluster — is described declaratively and the daemon keeps it alive, and the whole thing exposes itself to Claude Code as an MCP tool with a single setup line.
 
 The same command also becomes a menubar entry I can click, and a shell script if I just want to use it from the terminal. But MCP was the goal.
 
@@ -89,6 +89,38 @@ sneekd list
 ```
 
 Claude Code now sees a `sneek_pg_prod` tool — read-only Postgres, bastion-tunneled, password from Keychain, no secrets in the conversation.
+
+## Tunnels
+
+Two tunnel types, equal citizens — pick per command with `tunnel.type`:
+
+**SSH** (`"type": "ssh"`, the default) — a local forward through a bastion host:
+
+```json
+"tunnel": {
+  "host": "bastion.example.com",
+  "user": "deploy",
+  "identity_key": "~/.ssh/prod_key",
+  "local_port": 15432,
+  "remote_host": "prod-db.internal",
+  "remote_port": 5432
+}
+```
+
+**kubectl port-forward** (`"type": "kubectl"`) — straight into a Kubernetes service, pod, or deployment:
+
+```json
+"tunnel": {
+  "type": "kubectl",
+  "context": "dev-cluster",
+  "namespace": "dev-services",
+  "resource": "svc/mongodb",
+  "local_port": 27018,
+  "remote_port": 27017
+}
+```
+
+`context` and `namespace` are optional (blank = kubectl's current context / default namespace). Either way the daemon does the same babysitting: brings the tunnel up on demand (or at startup with `"auto_connect": true`), TCP-health-checks it every 10 seconds, reconnects with exponential backoff when it dies, and reaps any persistent session bound to a dead forward so the next query transparently reconnects.
 
 ## Architecture
 

@@ -130,18 +130,30 @@ public enum SecretRef: Codable, Equatable, Sendable {
 
 // MARK: - Tunnel Configuration
 
+public enum TunnelType: String, Codable, Sendable {
+    case ssh
+    case kubectl
+}
+
 public struct TunnelConfig: Codable, Equatable, Sendable {
     public var enabled: Bool?
-    public var host: String
-    public var user: String
+    /// Absent in configs written before kubectl support — treated as ssh.
+    public var type: TunnelType?
+    public var host: String?
+    public var user: String?
     public var identityKey: String?
     public var localPort: Int
-    public var remoteHost: String
+    public var remoteHost: String?
     public var remotePort: Int
     public var autoConnect: Bool?
+    public var context: String?
+    public var namespace: String?
+    public var resource: String?
+
+    public var tunnelType: TunnelType { type ?? .ssh }
 
     enum CodingKeys: String, CodingKey {
-        case enabled, host, user
+        case enabled, type, host, user, context, namespace, resource
         case identityKey = "identity_key"
         case localPort = "local_port"
         case remoteHost = "remote_host"
@@ -151,15 +163,20 @@ public struct TunnelConfig: Codable, Equatable, Sendable {
 
     public init(
         enabled: Bool? = nil,
-        host: String,
-        user: String,
+        type: TunnelType? = nil,
+        host: String? = nil,
+        user: String? = nil,
         identityKey: String? = nil,
         localPort: Int,
-        remoteHost: String,
+        remoteHost: String? = nil,
         remotePort: Int,
-        autoConnect: Bool? = nil
+        autoConnect: Bool? = nil,
+        context: String? = nil,
+        namespace: String? = nil,
+        resource: String? = nil
     ) {
         self.enabled = enabled
+        self.type = type
         self.host = host
         self.user = user
         self.identityKey = identityKey
@@ -167,6 +184,9 @@ public struct TunnelConfig: Codable, Equatable, Sendable {
         self.remoteHost = remoteHost
         self.remotePort = remotePort
         self.autoConnect = autoConnect
+        self.context = context
+        self.namespace = namespace
+        self.resource = resource
     }
 }
 

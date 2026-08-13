@@ -89,6 +89,46 @@ func runModelsTests() {
         checkThrows({ try JSONDecoder().decode(SecretRef.self, from: data) }, "unknown provider")
     }
 
+    test("kubectl tunnel config decodes") {
+        let json = #"""
+        {"type":"kubectl","context":"zoko-development","namespace":"dev-services",
+         "resource":"svc/mongodb","local_port":27018,"remote_port":27017}
+        """#
+        let data = json.data(using: .utf8)!
+        let tunnel = try JSONDecoder().decode(TunnelConfig.self, from: data)
+        check(tunnel.tunnelType == .kubectl, "tunnelType kubectl")
+        check(tunnel.context == "zoko-development", "context")
+        check(tunnel.namespace == "dev-services", "namespace")
+        check(tunnel.resource == "svc/mongodb", "resource")
+        check(tunnel.localPort == 27018, "local port")
+        check(tunnel.remotePort == 27017, "remote port")
+    }
+
+    test("SSH tunnel without type defaults to ssh") {
+        let json = #"""
+        {"host":"bastion.example.com","user":"deploy","local_port":15432,
+         "remote_host":"db.internal","remote_port":5432}
+        """#
+        let data = json.data(using: .utf8)!
+        let tunnel = try JSONDecoder().decode(TunnelConfig.self, from: data)
+        check(tunnel.tunnelType == .ssh, "tunnelType defaults to ssh")
+        check(tunnel.host == "bastion.example.com", "host preserved")
+    }
+
+    test("kubectl tunnel round-trip") {
+        let tunnel = TunnelConfig(
+            type: .kubectl,
+            localPort: 27018,
+            remotePort: 27017,
+            context: "zoko-development",
+            namespace: "dev-services",
+            resource: "svc/mongodb"
+        )
+        let data = try JSONEncoder().encode(tunnel)
+        let decoded = try JSONDecoder().decode(TunnelConfig.self, from: data)
+        check(decoded == tunnel, "round-trip equality")
+    }
+
     test("Oneshot mode with minimal fields") {
         let json = #"{"name":"echo-test","description":"test","mode":"oneshot","command":"echo hello"}"#
         let data = json.data(using: .utf8)!

@@ -58,6 +58,87 @@ func runTunnelManagerTests() {
         }
     }
 
+    test("kubectl tunnel builds port-forward arguments") {
+        let config = TunnelConfig(
+            type: .kubectl,
+            localPort: 27018,
+            remotePort: 27017,
+            context: "zoko-development",
+            namespace: "dev-services",
+            resource: "svc/mongodb"
+        )
+        let args = try SSHTunnelManager.processArguments(for: config)
+        check(args == [
+            "--context", "zoko-development",
+            "-n", "dev-services",
+            "port-forward",
+            "--address", "127.0.0.1",
+            "svc/mongodb",
+            "27018:27017",
+        ], "kubectl args, got \(args)")
+    }
+
+    test("kubectl tunnel without namespace omits -n") {
+        let config = TunnelConfig(
+            type: .kubectl,
+            localPort: 5433,
+            remotePort: 5432,
+            context: "zoko-development",
+            resource: "svc/postgres"
+        )
+        let args = try SSHTunnelManager.processArguments(for: config)
+        check(!args.contains("-n"), "no -n flag, got \(args)")
+        check(args.contains("--context"), "context still present")
+    }
+
+    test("kubectl tunnel without context omits --context") {
+        let config = TunnelConfig(
+            type: .kubectl,
+            localPort: 5433,
+            remotePort: 5432,
+            resource: "svc/postgres"
+        )
+        let args = try SSHTunnelManager.processArguments(for: config)
+        check(!args.contains("--context"), "no --context flag, got \(args)")
+    }
+
+    test("kubectl tunnel without resource throws") {
+        let config = TunnelConfig(
+            type: .kubectl,
+            localPort: 5433,
+            remotePort: 5432,
+            context: "zoko-development"
+        )
+        checkThrows({ try SSHTunnelManager.processArguments(for: config) }, "missing resource")
+    }
+
+    test("ssh tunnel builds -L arguments") {
+        let config = TunnelConfig(
+            host: "bastion.example.com",
+            user: "deploy",
+            identityKey: "~/.ssh/prod_key",
+            localPort: 15432,
+            remoteHost: "db.internal",
+            remotePort: 5432
+        )
+        let args = try SSHTunnelManager.processArguments(for: config)
+        check(args.contains("-N"), "-N present")
+        let joined = args.joined(separator: " ")
+        check(joined.contains("-L 15432:db.internal:5432"), "-L forward, got \(joined)")
+        check(args.last == "deploy@bastion.example.com", "user@host last, got \(String(describing: args.last))")
+        check(args.contains("-i"), "-i identity flag")
+    }
+
+    test("ssh tunnel without host throws") {
+        let config = TunnelConfig(
+            user: "deploy",
+            localPort: 15432,
+            remoteHost: "db.internal",
+            remotePort: 5432
+        )
+        checkThrows({ try SSHTunnelManager.processArguments(for: config) }, "missing ssh host")
+    }
+
     test("Mock ensureUp sets status to .up") {
         try runBlocking {
             let mock = MockTunnelManager()

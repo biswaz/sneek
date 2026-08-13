@@ -44,7 +44,7 @@ Sources/
     ConfigStore.swift        # JSON config loading/saving from ~/.config/sneek/
     SecretResolver.swift     # SecretProvider protocol + Keychain/1Password/Bitwarden/Env
     TemplateEngine.swift     # {{variable}} interpolation
-    TunnelManager.swift      # SSH tunnel spawn/health check/teardown (actor)
+    TunnelManager.swift      # SSH + kubectl port-forward tunnel spawn/health check/teardown (actor)
     SessionManager.swift     # Persistent subprocess sessions with sentinel parsing (actor)
     IPCProtocol.swift        # Unix domain socket IPC client/server
     MCPServer.swift          # stdio JSON-RPC MCP server for Claude Code
@@ -58,7 +58,7 @@ Sources/
     MenuBarView.swift        # Menubar popover (search, command list, badges)
     CommandEditorView.swift  # Full command editor form
 Tests/
-  SneekLibTests/             # 136 checks across 49 tests
+  SneekLibTests/             # 168 checks across 71 tests
     TestRunner.swift         # Custom test harness (no XCTest — see note below)
     Main.swift               # Test entry point
     ModelsTests.swift        # JSON round-trip, all secret providers, edge cases
@@ -169,7 +169,7 @@ AppState is a **snapshot cache**, not live state: `loadConfig()` runs only on ap
 - Persistent sessions with sentinel-based output parsing
 - Setup commands at session start
 - Read-only enforcement (blocked patterns + setup commands)
-- SSH tunnel spawn, health check (TCP connect), teardown
+- Tunnel spawn (SSH or kubectl port-forward), health check (TCP connect), teardown
 - MCP stdio server (initialize, tools/list, tools/call)
 - Per-project MCP scoping (tags, command names)
 - Shell script generation with correct permissions
@@ -183,7 +183,7 @@ See [`TODO.md`](TODO.md).
 
 ## Testing
 
-136 checks, 0 failures. Run via `swift run SneekTests`.
+168 checks, 0 failures. Run via `swift run SneekTests`.
 
 **Unit tests** (no external dependencies):
 - Models: JSON round-trip, all 4 secret providers, unknown provider throws, minimal config
@@ -277,6 +277,24 @@ Each MCP-enabled command becomes a tool named `sneek_<tool_name>` with a single 
   }
 }
 ```
+
+### Tunnel types
+
+`tunnel.type` selects the forwarding mechanism: `"ssh"` (the default when absent — all pre-existing configs are ssh) or `"kubectl"`. A kubectl tunnel runs `kubectl port-forward` instead of ssh and uses its own fields:
+
+```json
+"tunnel": {
+  "type": "kubectl",
+  "context": "zoko-development",
+  "namespace": "dev-services",
+  "resource": "svc/mongodb",
+  "local_port": 27018,
+  "remote_port": 27017,
+  "auto_connect": false
+}
+```
+
+`resource` (`svc/…`, `pod/…`, `deploy/…`) is required; `context` and `namespace` are optional (blank = kubectl's current context / default namespace). `host`, `user`, `identity_key`, and `remote_host` apply only to ssh tunnels. Health checks, the 10s monitor loop, backoff reconnect, and session reaping on reconnect are shared across both types. The daemon locates kubectl by searching `/opt/homebrew/bin`, `/usr/local/bin`, `~/.orbstack/bin`, then `PATH` — the launchd PATH doesn't include OrbStack's bin, hence the explicit search.
 
 ## Concurrency Model
 

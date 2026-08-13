@@ -177,6 +177,10 @@ struct CommandFormView: View {
 
     // Tunnel
     @State private var hasTunnel: Bool
+    @State private var tunnelType: TunnelType
+    @State private var tunnelContext: String
+    @State private var tunnelNamespace: String
+    @State private var tunnelResource: String
     @State private var tunnelHost: String
     @State private var tunnelUser: String
     @State private var tunnelIdentityKey: String
@@ -227,6 +231,10 @@ struct CommandFormView: View {
 
         let t = command.tunnel
         _hasTunnel = State(initialValue: t != nil && t?.enabled != false)
+        _tunnelType = State(initialValue: t?.tunnelType ?? .ssh)
+        _tunnelContext = State(initialValue: t?.context ?? "")
+        _tunnelNamespace = State(initialValue: t?.namespace ?? "")
+        _tunnelResource = State(initialValue: t?.resource ?? "")
         _tunnelHost = State(initialValue: t?.host ?? "")
         _tunnelUser = State(initialValue: t?.user ?? "")
         _tunnelIdentityKey = State(initialValue: t?.identityKey ?? "")
@@ -341,16 +349,35 @@ struct CommandFormView: View {
                 }
             }
 
-            Section("SSH Tunnel") {
+            Section("Tunnel") {
                 Toggle("Enable Tunnel", isOn: $hasTunnel)
                 if hasTunnel {
-                    TextField("Bastion Host", text: $tunnelHost)
-                    TextField("SSH User", text: $tunnelUser)
-                    TextField("Identity Key", text: $tunnelIdentityKey)
-                    HStack {
-                        TextField("Local Port", text: $tunnelLocalPort)
-                        TextField("Remote Host", text: $tunnelRemoteHost)
-                        TextField("Remote Port", text: $tunnelRemotePort)
+                    Picker("Type", selection: $tunnelType) {
+                        Text("SSH").tag(TunnelType.ssh)
+                        Text("kubectl port-forward").tag(TunnelType.kubectl)
+                    }
+                    .pickerStyle(.segmented)
+                    switch tunnelType {
+                    case .ssh:
+                        TextField("Bastion Host", text: $tunnelHost)
+                        TextField("SSH User", text: $tunnelUser)
+                        TextField("Identity Key", text: $tunnelIdentityKey)
+                        HStack {
+                            TextField("Local Port", text: $tunnelLocalPort)
+                            TextField("Remote Host", text: $tunnelRemoteHost)
+                            TextField("Remote Port", text: $tunnelRemotePort)
+                        }
+                    case .kubectl:
+                        TextField("Context", text: $tunnelContext)
+                            .help("kubectl context (blank = current context)")
+                        TextField("Namespace", text: $tunnelNamespace)
+                            .help("Namespace of the resource (blank = default)")
+                        TextField("Resource", text: $tunnelResource)
+                            .help("e.g. svc/mongodb, pod/my-pod, deploy/api")
+                        HStack {
+                            TextField("Local Port", text: $tunnelLocalPort)
+                            TextField("Remote Port", text: $tunnelRemotePort)
+                        }
                     }
                     Toggle("Auto-connect on daemon start", isOn: $tunnelAutoConnect)
                 }
@@ -443,16 +470,20 @@ struct CommandFormView: View {
         }
 
         // Always save tunnel data if any fields are filled — toggle controls enabled flag
-        let hasAnyTunnelData = !tunnelHost.isEmpty || !tunnelRemoteHost.isEmpty
+        let hasAnyTunnelData = !tunnelHost.isEmpty || !tunnelRemoteHost.isEmpty || !tunnelResource.isEmpty
         let tunnel: TunnelConfig? = (hasTunnel || hasAnyTunnelData) ? TunnelConfig(
             enabled: hasTunnel ? true : false,
-            host: tunnelHost,
-            user: tunnelUser,
+            type: tunnelType == .ssh ? nil : tunnelType,
+            host: tunnelHost.isEmpty ? nil : tunnelHost,
+            user: tunnelUser.isEmpty ? nil : tunnelUser,
             identityKey: tunnelIdentityKey.isEmpty ? nil : tunnelIdentityKey,
             localPort: Int(tunnelLocalPort) ?? 0,
-            remoteHost: tunnelRemoteHost,
+            remoteHost: tunnelRemoteHost.isEmpty ? nil : tunnelRemoteHost,
             remotePort: Int(tunnelRemotePort) ?? 0,
-            autoConnect: tunnelAutoConnect ? true : nil
+            autoConnect: tunnelAutoConnect ? true : nil,
+            context: tunnelContext.isEmpty ? nil : tunnelContext,
+            namespace: tunnelNamespace.isEmpty ? nil : tunnelNamespace,
+            resource: tunnelResource.isEmpty ? nil : tunnelResource
         ) : nil
 
         let mcp: MCPConfig? = mcpEnabled ? MCPConfig(

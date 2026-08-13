@@ -148,7 +148,7 @@ public actor Daemon {
             guard let cmdName = request.command, let op = request.operation else {
                 return .fail("missing command name or operation")
             }
-            return await tunnelOp(name: cmdName, operation: op, configStore: configStore, tunnelManager: tunnelManager)
+            return await tunnelOp(name: cmdName, operation: op, configStore: configStore, sessionManager: sessionManager, tunnelManager: tunnelManager)
 
         case .list:
             let names = configStore.commands.keys.sorted()
@@ -249,10 +249,11 @@ public actor Daemon {
         }
     }
 
-    private static func tunnelOp(
+    static func tunnelOp(
         name: String,
         operation: String,
         configStore: ConfigStore,
+        sessionManager: SessionManager,
         tunnelManager: SSHTunnelManager
     ) async -> IPCResponse {
         guard let cmd = configStore.commands[name], let tunnel = cmd.tunnel else {
@@ -270,6 +271,9 @@ public actor Daemon {
         case "down":
             do {
                 try await tunnelManager.tearDown(name)
+                // A live session holds a socket through the dead forward — reap it
+                // so the next run re-establishes instead of failing once with EOF.
+                await sessionManager.reap(name)
                 return .ok("tunnel down")
             } catch {
                 return .fail("tunnel down failed: \(error)")

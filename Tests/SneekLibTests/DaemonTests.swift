@@ -87,4 +87,49 @@ func runDaemonTests() {
         b.mode = .oneshot
         check(Daemon.sessionConfigChanged(a, b), "mode change must reap")
     }
+
+    test("tunnel down reaps the session bound to the dead forward") {
+        let sem = DispatchSemaphore(value: 0)
+        let box = ErrBox()
+        Task {
+            do {
+                let tempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("sneek-daemon-\(UUID().uuidString)")
+                defer { try? FileManager.default.removeItem(at: tempDir) }
+
+                var cmd = CommandConfig(
+                    name: "t1", description: "test", mode: .session,
+                    command: "bash", sentinel: "echo __SNEEK_DONE__"
+                )
+                cmd.tunnel = TunnelConfig(host: "bastion.example.com", user: "deploy",
+                                          localPort: 25599, remoteHost: "db.internal", remotePort: 5432)
+                let store = try ConfigStore(baseDir: tempDir)
+                try store.save(cmd)
+
+                let sessionMgr = SessionManager()
+                let tunnelMgr = SSHTunnelManager()
+
+                _ = try await sessionMgr.send(input: "echo hi", to: "t1", config: cmd, resolvedCommand: "bash")
+                let before = await sessionMgr.activeSessions()
+                check(before.contains("t1"), "session should be live before tunnel down")
+
+                let resp = await Daemon.tunnelOp(
+                    name: "t1", operation: "down",
+                    configStore: store, sessionManager: sessionMgr, tunnelManager: tunnelMgr
+                )
+                check(resp.success, "tunnel down should succeed")
+                let after = await sessionMgr.activeSessions()
+                check(!after.contains("t1"), "session must be reaped when its tunnel is torn down")
+            } catch {
+                box.error = error
+            }
+            sem.signal()
+        }
+        sem.wait()
+        if let e = box.error { throw e }
+    }
+}
+
+private final class ErrBox: @unchecked Sendable {
+    var error: (any Error)?
 }

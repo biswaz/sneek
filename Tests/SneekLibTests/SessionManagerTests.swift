@@ -36,6 +36,28 @@ func runSessionManagerTests() {
         check(result == "world", "got: \(result)")
     }
 
+    test("Multi-line sentinel output leaks nothing (cqlsh-style)") {
+        // cqlsh's sentinel SELECT prints a result table where the marker appears
+        // twice: in the column header and in the value row. None of that block
+        // may leak into the returned output.
+        let result: String = try runBlocking {
+            let manager = SessionManager()
+            defer { Task { await manager.reapAll() } }
+            let config = CommandConfig(
+                name: "cql-style",
+                description: "test",
+                mode: .session,
+                command: "bash",
+                sentinel: #"printf ' (text)__SNEEK_DONE__\n------\n __SNEEK_DONE__\n\n(1 rows)\n'"#
+            )
+            return try await manager.send(
+                input: "echo real-output",
+                to: "cql-style", config: config, resolvedCommand: "bash"
+            )
+        }
+        check(result == "real-output", "sentinel block leaked into output: \(result.debugDescription)")
+    }
+
     test("Blocked pattern rejects write commands") {
         var caught = false
         do {

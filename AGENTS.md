@@ -58,7 +58,7 @@ Sources/
     MenuBarView.swift        # Menubar popover (search, command list, badges)
     CommandEditorView.swift  # Full command editor form
 Tests/
-  SneekLibTests/             # 168 checks across 71 tests
+  SneekLibTests/             # 169 checks across 72 tests
     TestRunner.swift         # Custom test harness (no XCTest — see note below)
     Main.swift               # Test entry point
     ModelsTests.swift        # JSON round-trip, all secret providers, edge cases
@@ -140,9 +140,13 @@ Default sentinels per known type:
 - Postgres: `\echo __SNEEK_DONE__`
 - MySQL: `SELECT '__SNEEK_DONE__';`
 - Redis: `ECHO __SNEEK_DONE__`
+- Cassandra (cqlsh): `SELECT (text)'__SNEEK_DONE__' FROM system.local;`
+- MongoDB (mongosh): `print("__SNEEK_DONE__")`
 - Generic/bash: `echo __SNEEK_DONE__`
 
 Custom sentinel via the `sentinel` field in command config.
+
+**Sentinel selection rule (for new DB types):** output parsing cuts at the *first* line containing `__SNEEK_DONE__` and discards everything from there on. So the sentinel's very first line of output must contain the marker. Prefer an echo-style command with no table formatting (`\echo`, `print`, `ECHO`). If the tool only has SELECT, use a bare `SELECT '__SNEEK_DONE__'` **without a column alias** — the marker then lands in the printed column header, which is the first line of the result block (this is why the cqlsh default works). An aliased column (`AS done`) or a decorative border printed above the header would leak those pre-marker lines into command output.
 
 ### Read-only mode — two layers
 1. **Setup commands** — run at session start (e.g., `SET default_transaction_read_only = on;`). The database itself enforces read-only.
@@ -183,7 +187,7 @@ See [`TODO.md`](TODO.md).
 
 ## Testing
 
-168 checks, 0 failures. Run via `swift run SneekTests`.
+169 checks, 0 failures. Run via `swift run SneekTests`.
 
 **Unit tests** (no external dependencies):
 - Models: JSON round-trip, all 4 secret providers, unknown provider throws, minimal config

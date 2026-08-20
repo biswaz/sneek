@@ -186,9 +186,15 @@ public actor SessionManager {
                     // forever if the dropped chunk contained the sentinel).
                     let text = String(decoding: accumulated, as: UTF8.self)
 
-                    // Check if sentinel output appeared
+                    // Check if sentinel output appeared. Cut at the FIRST marker
+                    // line: the sentinel command is sent after the user's input,
+                    // so real output always precedes it — everything from the
+                    // first occurrence on (echoed command, result-table header,
+                    // value row, "(1 rows)") is sentinel-owned. Cutting at the
+                    // last occurrence leaked cqlsh's column header, which
+                    // contains the marker on a separate line from the value.
                     let lines = text.components(separatedBy: "\n")
-                    if let idx = lines.lastIndex(where: { $0.contains(Self.sentinelOutput) }) {
+                    if let idx = lines.firstIndex(where: { $0.contains(Self.sentinelOutput) }) {
                         let output = lines[..<idx].joined(separator: "\n")
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         continuation.resume(returning: output)

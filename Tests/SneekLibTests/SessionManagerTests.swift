@@ -103,6 +103,94 @@ func runSessionManagerTests() {
         check(caught, "case-insensitive block")
     }
 
+    test("Pattern inside identifier is not blocked") {
+        // "UPDATE" must not match the column name "updatedAt" / "updated_at".
+        let result: String = try runBlocking {
+            let manager = SessionManager()
+            defer { Task { await manager.reapAll() } }
+            let config = CommandConfig(
+                name: "wordbound",
+                description: "test",
+                mode: .session,
+                readonly: true,
+                command: "bash",
+                blockedPatterns: ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE"]
+            )
+            let a = try await manager.send(
+                input: "echo 'SELECT updatedAt FROM flows'",
+                to: "wordbound", config: config, resolvedCommand: "bash")
+            let b = try await manager.send(
+                input: "echo 'SELECT updated_at, inserted, altered FROM flows'",
+                to: "wordbound", config: config, resolvedCommand: "bash")
+            return a + "|" + b
+        }
+        check(result == "SELECT updatedAt FROM flows|SELECT updated_at, inserted, altered FROM flows",
+              "identifier wrongly blocked or mangled: \(result)")
+    }
+
+    test("Whole-word pattern still blocked when punctuation-adjacent") {
+        var caught = false
+        do {
+            let _: String = try runBlocking {
+                let manager = SessionManager()
+                let config = CommandConfig(
+                    name: "wordbound2",
+                    description: "test",
+                    mode: .session,
+                    readonly: true,
+                    command: "cat",
+                    blockedPatterns: ["UPDATE"]
+                )
+                return try await manager.send(input: "update flows set x=1;", to: "wordbound2", config: config, resolvedCommand: "cat")
+            }
+        } catch is SessionError {
+            caught = true
+        }
+        check(caught, "UPDATE as a word must stay blocked")
+    }
+
+    test("Punctuation-edged patterns keep substring matching") {
+        // Mongo configs use patterns like ".drop(" — edges are non-word chars,
+        // so no boundary assertion applies and substring behavior is kept.
+        var caught = false
+        do {
+            let _: String = try runBlocking {
+                let manager = SessionManager()
+                let config = CommandConfig(
+                    name: "wordbound3",
+                    description: "test",
+                    mode: .session,
+                    readonly: true,
+                    command: "cat",
+                    blockedPatterns: [".drop(", "updateOne"]
+                )
+                return try await manager.send(input: "db.users.drop()", to: "wordbound3", config: config, resolvedCommand: "cat")
+            }
+        } catch is SessionError {
+            caught = true
+        }
+        check(caught, ".drop( must stay blocked")
+
+        var caughtCamel = false
+        do {
+            let _: String = try runBlocking {
+                let manager = SessionManager()
+                let config = CommandConfig(
+                    name: "wordbound4",
+                    description: "test",
+                    mode: .session,
+                    readonly: true,
+                    command: "cat",
+                    blockedPatterns: [".drop(", "updateOne"]
+                )
+                return try await manager.send(input: "db.users.updateOne({}, {})", to: "wordbound4", config: config, resolvedCommand: "cat")
+            }
+        } catch is SessionError {
+            caughtCamel = true
+        }
+        check(caughtCamel, "updateOne( must stay blocked")
+    }
+
     test("Session preserves multibyte output split across pipe chunks") {
         // >64KB of 3-byte runes guarantees pipe reads that split characters
         // mid-rune; dropped chunks show up as missing lines.

@@ -58,7 +58,7 @@ Sources/
     MenuBarView.swift        # Menubar popover (search, command list, badges)
     CommandEditorView.swift  # Full command editor form
 Tests/
-  SneekLibTests/             # 169 checks across 72 tests
+  SneekLibTests/             # 173 checks across 75 tests
     TestRunner.swift         # Custom test harness (no XCTest — see note below)
     Main.swift               # Test entry point
     ModelsTests.swift        # JSON round-trip, all secret providers, edge cases
@@ -150,7 +150,7 @@ Custom sentinel via the `sentinel` field in command config.
 
 ### Read-only mode — two layers
 1. **Setup commands** — run at session start (e.g., `SET default_transaction_read_only = on;`). The database itself enforces read-only.
-2. **Blocked patterns** — daemon rejects input containing patterns (DROP, DELETE, etc.) *before* it reaches the session. Case-insensitive. Safety net, not a guarantee.
+2. **Blocked patterns** — daemon rejects input matching patterns (DROP, DELETE, etc.) *before* it reaches the session. Case-insensitive. Word boundaries apply only where a pattern edge is a word character: `UPDATE` blocks `update flows …` but not `updatedAt`/`updated_at`; punctuation-edged patterns like `.drop(` keep plain substring matching (so `db.users.drop()` is still caught). Safety net, not a guarantee.
 
 ### One MCP server for all commands
 `sneekd mcp-serve` is a single stdio JSON-RPC process. Claude's config points to it once. All MCP-enabled commands appear as tools. Per-project scoping via `--tags` or `--commands` flags.
@@ -187,7 +187,7 @@ See [`TODO.md`](TODO.md).
 
 ## Testing
 
-169 checks, 0 failures. Run via `swift run SneekTests`.
+173 checks, 0 failures. Run via `swift run SneekTests`.
 
 **Unit tests** (no external dependencies):
 - Models: JSON round-trip, all 4 secret providers, unknown provider throws, minimal config

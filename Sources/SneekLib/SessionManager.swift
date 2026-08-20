@@ -24,13 +24,30 @@ public actor SessionManager {
 
     public init() {}
 
+    // Case-insensitive match with word boundaries applied only where the
+    // pattern edge is a word character: "UPDATE" won't match "updatedAt",
+    // but punctuation-edged patterns like ".drop(" keep plain substring
+    // behavior (a boundary assertion next to punctuation would never match
+    // mid-identifier calls like "db.users.drop()").
+    static func matchesBlockedPattern(input: String, pattern: String) -> Bool {
+        guard let first = pattern.unicodeScalars.first, let last = pattern.unicodeScalars.last else {
+            return false
+        }
+        func isWordChar(_ scalar: Unicode.Scalar) -> Bool {
+            CharacterSet.alphanumerics.contains(scalar) || scalar == "_"
+        }
+        var regex = NSRegularExpression.escapedPattern(for: pattern)
+        if isWordChar(first) { regex = #"(?<![\w])"# + regex }
+        if isWordChar(last) { regex += #"(?![\w])"# }
+        return input.range(of: regex, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     // MARK: - Session mode
 
     public func send(input: String, to name: String, config: CommandConfig, resolvedCommand: String) async throws -> String {
         if config.readonly == true, let patterns = config.blockedPatterns {
-            let upper = input.uppercased()
             for pattern in patterns {
-                if upper.contains(pattern.uppercased()) {
+                if Self.matchesBlockedPattern(input: input, pattern: pattern) {
                     SneekLogger.warn("session/\(name): blocked input matching pattern '\(pattern)'")
                     throw SessionError.blockedByReadonly(pattern: pattern, input: input)
                 }
